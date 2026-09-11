@@ -4,7 +4,7 @@
 [![Windows 11 / 10](https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010%20(x64)-0078D6?logo=windows)](https://github.com/sandersoncw55/speakr-companion/releases/latest)
 [![CI Release](https://github.com/sandersoncw55/speakr-companion/actions/workflows/release.yml/badge.svg)](https://github.com/sandersoncw55/speakr-companion/actions/workflows/release.yml)
 
-A background desktop utility for Windows 11 designed to capture, manage, tag, and upload meeting recordings automatically to your **Speakr** instance.
+A lightweight background desktop utility for Windows 11/10 designed to capture, manage, tag, and upload meeting recordings automatically to your self-hosted [**Speakr**](https://github.com/murtaza-nasir/speakr) instance.
 
 ---
 
@@ -22,24 +22,7 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 ---
 
-## 🎙️ What is Speakr?
-
-[**Speakr**](https://github.com/murtaza-nasir/speakr) is an open-source, self-hosted web application and API platform designed for automated speech-to-text transcription, speaker diarization, AI meeting summarization, and audio note-taking.
-
-### Key Speakr Capabilities:
-- **🔒 100% Self-Hosted & Private:** Runs entirely on your own local server or NAS using Docker with zero required cloud egress.
-- **⚡ Local & Cloud ASR:** Integrates with local Whisper engines (e.g. WhisperX, Apple Silicon Whisper-MLX) or cloud speech APIs.
-- **👥 Speaker Diarization:** Automatically identifies and labels distinct speakers throughout discussions.
-- **🤖 Custom AI Prompts & Tagging:** Summarizes conversations into action items, meeting minutes, and structured notes based on customizable tag templates.
-
-This Windows Companion App serves as the dedicated desktop client for Windows 11/10, silently monitoring meeting audio in the background and uploading finished sessions directly to your Speakr instance.
-
-🔗 **Upstream Speakr Repository:** [https://github.com/murtaza-nasir/speakr](https://github.com/murtaza-nasir/speakr)  
-📖 **Speakr Documentation:** [https://murtaza-nasir.github.io/speakr/](https://murtaza-nasir.github.io/speakr/)
-
----
-
-## ✨ Features
+## ✨ Companion App Features
 
 - **Dual-Stream Audio Capture:** Simultaneously records your microphone and system audio (speakers) via WASAPI loopback without requiring active window focus.
 - **Dynamic Tagging:** Fetches your active tags directly from Speakr's REST API. Allows you to tag meetings before or during recording.
@@ -71,6 +54,21 @@ This Windows Companion App serves as the dedicated desktop client for Windows 11
    - Choose **NAS Folder Copy** and browse to select your NAS Syncthing directory (e.g. `Z:\AudioRecordings\Inbox`) if you prefer local share synchronization.
 3. **Devices Select:** Choose your default or specific Microphone and Speaker channels. The level meters on the **Dashboard** will immediately show sound waves indicating functionality.
 4. **Auto-Record:** Toggle the checkbox to allow background process monitoring. The app will hide in the tray and start recording automatically whenever Zoom, Teams, or Citrix sessions begin!
+
+---
+
+## 🎙️ About the Speakr Server Backend
+
+[**Speakr**](https://github.com/murtaza-nasir/speakr) is an open-source, self-hosted web application and API platform designed for automated speech-to-text transcription, speaker diarization, AI meeting summarization, and audio note-taking.
+
+### Key Speakr Server Capabilities:
+- **🔒 100% Self-Hosted & Private:** Runs entirely on your own local server or NAS using Docker with zero required cloud egress.
+- **⚡ Local & Cloud ASR:** Integrates with local Whisper engines (e.g. WhisperX, Apple Silicon Whisper-MLX) or cloud speech APIs.
+- **👥 Speaker Diarization:** Automatically identifies and labels distinct speakers throughout discussions.
+- **🤖 Custom AI Prompts & Tagging:** Summarizes conversations into action items, meeting minutes, and structured notes based on customizable tag templates.
+
+🔗 **Upstream Speakr Repository:** [https://github.com/murtaza-nasir/speakr](https://github.com/murtaza-nasir/speakr)  
+📖 **Speakr Documentation:** [https://murtaza-nasir.github.io/speakr/](https://murtaza-nasir.github.io/speakr/)
 
 ---
 
