@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# PyInstaller / Distribution builds
+build/
+dist/
+releases/*.exe
+releases/*.zip
+*.spec.bak
+
+# Test scratch & storage
+test_temp_storage_env/
+recordings/
+*.mp4
+*.wav
+*.aac
+*.tmp
+
+# IDE / Editor configuration
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
