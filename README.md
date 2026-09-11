@@ -1,6 +1,15 @@
 # Speakr Windows Companion App
 
+[![Release](https://img.shields.io/github/v/release/sandersoncw55/speakr-companion?color=blue&label=Latest%20Release)](https://github.com/sandersoncw55/speakr-companion/releases/latest)
+[![Windows 11](https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010%20(x64)-0078D6?logo=windows)](https://github.com/sandersoncw55/speakr-companion/releases/latest)
+
 A background desktop utility for Windows 11 designed to capture, manage, tag, and upload meeting recordings automatically to your **Speakr** instance.
+
+### 📥 [Download Latest Release (v1.0.0)](https://github.com/sandersoncw55/speakr-companion/releases/latest)
+- 🚀 **[SpeakrCompanion-Setup-v1.0.0.exe](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.0/SpeakrCompanion-Setup-v1.0.0.exe)** — Standard Windows installer wizard with Start Menu shortcuts and optional auto-start on boot.
+- 🗜️ **[SpeakrCompanion_Portable_v1.0.0.zip](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.0/SpeakrCompanion_Portable_v1.0.0.zip)** — Zero-install portable zip archive.
+
+---
 
 ## Features
 
