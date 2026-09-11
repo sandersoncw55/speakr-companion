@@ -1,17 +1,28 @@
 # Speakr Windows Companion App
 
 [![Release](https://img.shields.io/github/v/release/sandersoncw55/speakr-companion?color=blue&label=Latest%20Release)](https://github.com/sandersoncw55/speakr-companion/releases/latest)
-[![Windows 11](https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010%20(x64)-0078D6?logo=windows)](https://github.com/sandersoncw55/speakr-companion/releases/latest)
+[![Windows 11 / 10](https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010%20(x64)-0078D6?logo=windows)](https://github.com/sandersoncw55/speakr-companion/releases/latest)
+[![CI Release](https://github.com/sandersoncw55/speakr-companion/actions/workflows/release.yml/badge.svg)](https://github.com/sandersoncw55/speakr-companion/actions/workflows/release.yml)
 
 A background desktop utility for Windows 11 designed to capture, manage, tag, and upload meeting recordings automatically to your **Speakr** instance.
 
-### 📥 [Download Latest Release (v1.0.0)](https://github.com/sandersoncw55/speakr-companion/releases/latest)
-- 🚀 **[SpeakrCompanion-Setup-v1.0.0.exe](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.0/SpeakrCompanion-Setup-v1.0.0.exe)** — Standard Windows installer wizard with Start Menu shortcuts and optional auto-start on boot.
-- 🗜️ **[SpeakrCompanion_Portable_v1.0.0.zip](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.0/SpeakrCompanion_Portable_v1.0.0.zip)** — Zero-install portable zip archive.
+---
+
+## 📥 Quick Download & Installation
+
+Download the latest version from [**GitHub Releases**](https://github.com/sandersoncw55/speakr-companion/releases/latest):
+
+| Package | Description | Recommended For |
+| :--- | :--- | :--- |
+| 🚀 [**`SpeakrCompanion-Setup-v1.0.0.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.0/SpeakrCompanion-Setup-v1.0.0.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
+| 🗜️ [**`SpeakrCompanion_Portable_v1.0.0.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.0/SpeakrCompanion_Portable_v1.0.0.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
+
+> [!NOTE]
+> The setup installer runs as a standard per-user installation in `%LOCALAPPDATA%\Programs\Speakr Companion` and does not require Administrator privileges or UAC elevation.
 
 ---
 
-## Features
+## ✨ Features
 
 - **Dual-Stream Audio Capture:** Simultaneously records your microphone and system audio (speakers) via WASAPI loopback without requiring active window focus.
 - **Dynamic Tagging:** Fetches your active tags directly from Speakr's REST API. Allows you to tag meetings before or during recording.
@@ -35,23 +46,35 @@ A background desktop utility for Windows 11 designed to capture, manage, tag, an
 
 ---
 
-## Installation & Running from Source
+## ⚙️ Configuration & Usage
+
+1. **Server Setup:** Under the **Preferences** tab, click **Add** to configure your Speakr instance. Enter a friendly name, the API base URL (e.g. `http://192.168.0.88:8899/api/v1`), and your API Key.
+2. **Upload Preference:**
+   - Choose **Direct API Upload** if you want the app to handle file uploads over HTTP.
+   - Choose **NAS Folder Copy** and browse to select your NAS Syncthing directory (e.g. `Z:\AudioRecordings\Inbox`) if you prefer local share synchronization.
+3. **Devices Select:** Choose your default or specific Microphone and Speaker channels. The level meters on the **Dashboard** will immediately show sound waves indicating functionality.
+4. **Auto-Record:** Toggle the checkbox to allow background process monitoring. The app will hide in the tray and start recording automatically whenever Zoom, Teams, or Citrix sessions begin!
+
+---
+
+## 💻 Building from Source
 
 ### Prerequisites
-1. **Windows 11 OS**
-2. **Python 3.12** (Make sure to check "Add Python to PATH" during installation)
+1. **Windows 11 or 10 OS (64-bit)**
+2. **Python 3.12** (Check "Add Python to PATH" during installation)
 
 ### Steps
-1. Open PowerShell and navigate to the project folder:
+1. Clone the repository:
    ```powershell
-   cd c:\Temp\Google_Antigravity\speakr_compainion
+   git clone https://github.com/sandersoncw55/speakr-companion.git
+   cd speakr-companion
    ```
 2. Create and activate a Python virtual environment:
    ```powershell
    py -3.12 -m venv .venv
    .venv\Scripts\Activate.ps1
    ```
-3. Install the required dependencies:
+3. Install dependencies:
    ```powershell
    pip install -r requirements.txt
    ```
@@ -62,67 +85,19 @@ A background desktop utility for Windows 11 designed to capture, manage, tag, an
 
 ---
 
----
+## 📦 Packaging & Release Pipeline
 
-## Packaging & Distributing for Windows
+### One-Click Local Build (`.zip` & `.exe`)
 
-We provide multiple packaging formats depending on how you plan to share and distribute the application:
-
-### Option 1: One-Click Automated Release (`.zip` & `.exe`)
-
-Run the automated release script:
+Run the bundled packaging script to run tests and compile both the portable package and Inno Setup installer:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\package_release.ps1
 ```
-This script automatically:
-1. Runs and verifies the full 15-test unit suite.
-2. Compiles `dist/SpeakrCompanion.exe` using PyInstaller.
-3. Bundles the binary, icon, and README into `releases/SpeakrCompanion_Portable_v1.0.0.zip`.
-4. Compiles `SpeakrCompanion-Setup-v1.0.0.exe` if Inno Setup is detected.
 
----
+### Automated CI/CD (GitHub Actions)
 
-### Option 2: Standalone Portable Binary (`SpeakrCompanion.exe`)
-
-Ideal for quick sharing via network shares (NAS), Slack, or USB drives:
-1. Compile using PyInstaller:
-   ```powershell
-   .venv\Scripts\pyinstaller.exe --clean SpeakrCompanion.spec
-   ```
-2. Distribute `dist/SpeakrCompanion.exe`. Users can double-click and run it directly without installing Python or needing Administrator privileges.
-
----
-
-### Option 3: Standard Windows Setup Installer Wizard (`.exe`)
-
-For a professional Windows Setup Wizard with Start Menu shortcuts, Desktop icons, uninstaller, and "Start on Windows Boot":
-1. Download and install [Inno Setup 6](https://jrsoftware.org/isinfo.php).
-2. Compile the bundled script:
-   ```powershell
-   iscc installer.iss
-   ```
-3. The resulting setup executable will be generated at `releases/SpeakrCompanion-Setup-v1.0.0.exe`.
-
----
-
-### Option 4: Enterprise & Microsoft Intune Deployment (`.intunewin`)
-
-For silent deployment across domain-joined enterprise endpoints or VDI pools:
-1. Use the Microsoft Win32 Content Prep Tool (`IntuneWinAppUtil.exe`):
-   ```powershell
-   .\IntuneWinAppUtil.exe -c .\releases\ -s SpeakrCompanion-Setup-v1.0.0.exe -o .\intune_output\
-   ```
-2. Deploy via Intune with the silent install command:
-   ```text
-   SpeakrCompanion-Setup-v1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS="startupicon"
-   ```
-3. Detection Rule: File exists `%LOCALAPPDATA%\Programs\Speakr Companion\SpeakrCompanion.exe`.
-
-## Configuration & Usage
-
-1. **Server Setup:** Under the **Preferences** tab, click **Add** to configure your Speakr instance. Enter a friendly name, the API base URL (e.g. `http://192.168.0.88:8899/api/v1`), and your API Key.
-2. **Upload Preference:**
-   - Choose **Direct API Upload** if you want the app to handle file uploads over HTTP.
-   - Choose **NAS Folder Copy** and browse to select your NAS Syncthing directory (e.g. `Z:\AudioRecordings\Inbox`) if you prefer local share synchronization.
-3. **Devices Select:** Choose your default or specific Microphone and Speaker channels. The level meters on the **Dashboard** will immediately show sound waves indicating functionality.
-4. **Auto-Record:** Toggle the checkbox to allow background process monitoring. The app will hide in the tray and start recording automatically whenever Zoom, Teams, or Citrix sessions begin!
+A GitHub Actions workflow (`.github/workflows/release.yml`) is included. Whenever you push a version tag, GitHub cloud runners automatically build and publish the release:
+```powershell
+git tag v1.0.1
+git push origin v1.0.1
+```
