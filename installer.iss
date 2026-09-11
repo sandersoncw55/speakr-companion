@@ -4,7 +4,7 @@
 #define MyAppName "Speakr Companion"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Speakr"
-#define MyAppURL "https://github.com/your-org/speakr-companion"
+#define MyAppURL "https://github.com/sandersoncw55/speakr-companion"
 #define MyAppExeName "SpeakrCompanion.exe"
 
 [Setup]
