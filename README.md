@@ -14,8 +14,8 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 | Package | Description | Recommended For |
 | :--- | :--- | :--- |
-| 🚀 [**`SpeakrCompanion-Setup-v1.0.0.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.0/SpeakrCompanion-Setup-v1.0.0.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
-| 🗜️ [**`SpeakrCompanion_Portable_v1.0.0.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.0/SpeakrCompanion_Portable_v1.0.0.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
+| 🚀 [**`SpeakrCompanion-Setup-v1.0.1.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.1/SpeakrCompanion-Setup-v1.0.1.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
+| 🗜️ [**`SpeakrCompanion_Portable_v1.0.1.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.1/SpeakrCompanion_Portable_v1.0.1.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
 
 > [!NOTE]
 > The setup installer runs as a standard per-user installation in `%LOCALAPPDATA%\Programs\Speakr Companion` and does not require Administrator privileges or UAC elevation.
@@ -24,6 +24,8 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 ## ✨ Companion App Features
 
+- **Modern High-Resolution App Icon:** Multi-resolution master icon layers (from 16x16 up to 256x256) crafted for Windows shortcuts, high-DPI taskbars, and system trays.
+- **Configurable System Tray Minimization:** Choose whether minimizing or closing the window minimizes directly to the Windows notification area (system tray) or exits the app, with quick toggles in Preferences.
 - **Dual-Stream Audio Capture:** Simultaneously records your microphone and system audio (speakers) via WASAPI loopback without requiring active window focus.
 - **Dynamic Tagging:** Fetches your active tags directly from Speakr's REST API. Allows you to tag meetings before or during recording.
 - **Live Recording Duration Timer:** Real-time timer display (`HH:MM:SS`) in the dashboard status card, status bar, and tray tooltip while active.
@@ -41,8 +43,9 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
     - **Post-Record Filter:** Automatically discards recordings with < 30 seconds of active audio to eliminate notification dings.
 - **Flexible Upload Ingestion:**
   - **API Upload:** Post recordings and tags directly to the Speakr server via REST API.
-  - **Folder Copy:** Drop recordings into a local directory mapped to your Syncthing NAS Share (`Z:\AudioRecordings\Inbox`). The companion app automatically polls the Speakr API to match and tag the recording once ingested.
+  - **NAS Folder Copy:** Drop recordings into a local directory mapped to your Syncthing NAS Share (`Z:\AudioRecordings\Inbox`). The companion app automatically polls the Speakr API to match and tag the recording once ingested.
 - **Live Closed Captions Hint & Shortcut:** Integrated dashboard card with one-click access and shortcut guidance (<kbd>Win</kbd> + <kbd>Ctrl</kbd> + <kbd>L</kbd>) to toggle Windows 11's hardware-accelerated, real-time Live Captions for any active meeting or playback.
+
 
 ---
 

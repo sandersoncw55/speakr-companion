@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from gui.widgets import VolumeMeter
 from gui.tray_icon import create_badged_icon
+from core.config import Settings, get_app_icon
 
 # Create QApplication for GUI test if not present
 app = QApplication.instance() or QApplication(sys.argv)
@@ -35,6 +36,22 @@ class TestWidgetsAndTray(unittest.TestCase):
 
         icon_cd = create_badged_icon("cooldown")
         self.assertFalse(icon_cd.isNull())
+
+    def test_app_icon_resolution(self):
+        icon = get_app_icon()
+        self.assertFalse(icon.isNull(), "App icon should load properly from app_icon.ico/png")
+
+    def test_tray_preferences_settings(self):
+        settings = Settings()
+        # Default should be True
+        self.assertTrue(isinstance(settings.minimize_to_tray, bool))
+        self.assertTrue(isinstance(settings.close_to_tray, bool))
+        
+        # Test setter
+        original_min = settings.minimize_to_tray
+        settings.minimize_to_tray = not original_min
+        self.assertEqual(settings.minimize_to_tray, not original_min)
+        settings.minimize_to_tray = original_min
 
 if __name__ == "__main__":
     unittest.main()

@@ -53,7 +53,9 @@ class Settings:
         "citrix_auto_record": True,
         "local_recordings_dir": "",  # Empty string defaults to AppData/SpeakrCompanion/recordings
         "retention_days": 30,        # 30 days retention policy (0 = keep forever)
-        "cooldown_seconds": 60       # 60s cooldown delay after recording stops
+        "cooldown_seconds": 60,      # 60s cooldown delay after recording stops
+        "minimize_to_tray": True,    # Hide window to tray on minimize
+        "close_to_tray": True        # Hide window to tray on close button
     }
 
     def __init__(self):
@@ -253,5 +255,23 @@ class Settings:
     @cooldown_seconds.setter
     def cooldown_seconds(self, val: int) -> None:
         self.data["cooldown_seconds"] = val
+        self.save()
+
+    @property
+    def minimize_to_tray(self) -> bool:
+        return bool(self.data.get("minimize_to_tray", True))
+
+    @minimize_to_tray.setter
+    def minimize_to_tray(self, val: bool) -> None:
+        self.data["minimize_to_tray"] = val
+        self.save()
+
+    @property
+    def close_to_tray(self) -> bool:
+        return bool(self.data.get("close_to_tray", True))
+
+    @close_to_tray.setter
+    def close_to_tray(self, val: bool) -> None:
+        self.data["close_to_tray"] = val
         self.save()
 

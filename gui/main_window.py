@@ -3,7 +3,7 @@ import time
 import threading
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from PySide6.QtCore import Qt, Signal, QObject, QTimer
+from PySide6.QtCore import Qt, Signal, QObject, QTimer, QEvent
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QCheckBox, QComboBox, QLineEdit, 
@@ -636,7 +636,22 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(rules_group)
         
-        # 7. Local Closed Captions Group
+        # 7. Window & System Tray Behavior
+        tray_group = QGroupBox("Window & System Tray Behavior")
+        tray_layout = QVBoxLayout(tray_group)
+        
+        self.min_to_tray_chk = QCheckBox("Minimize to System Tray (hide window when minimized)")
+        self.min_to_tray_chk.setChecked(self.settings.minimize_to_tray)
+        self.min_to_tray_chk.toggled.connect(self._tray_prefs_changed)
+        tray_layout.addWidget(self.min_to_tray_chk)
+        
+        self.close_to_tray_chk = QCheckBox("Close to System Tray (keep running in background when closed)")
+        self.close_to_tray_chk.setChecked(self.settings.close_to_tray)
+        self.close_to_tray_chk.toggled.connect(self._tray_prefs_changed)
+        tray_layout.addWidget(self.close_to_tray_chk)
+        
+        layout.addWidget(tray_group)
+        
         # Devices event bindings
         self.mic_combo.currentIndexChanged.connect(self._audio_devices_changed)
         self.spk_combo.currentIndexChanged.connect(self._audio_devices_changed)
@@ -813,6 +828,11 @@ class MainWindow(QMainWindow):
         if secs is not None:
             self.settings.cooldown_seconds = int(secs)
             self._log(f"Cooldown delay set to: {secs} seconds")
+
+    def _tray_prefs_changed(self) -> None:
+        self.settings.minimize_to_tray = self.min_to_tray_chk.isChecked()
+        self.settings.close_to_tray = self.close_to_tray_chk.isChecked()
+        self._log(f"Tray preferences updated: minimize_to_tray={self.settings.minimize_to_tray}, close_to_tray={self.settings.close_to_tray}")
 
     def _open_windows_captions_settings(self) -> None:
         """Opens Windows Accessibility Captions settings or launches Live Captions."""
@@ -1122,14 +1142,24 @@ class MainWindow(QMainWindow):
         
         self.tag_selector.clear_selection()
 
+    def changeEvent(self, event) -> None:
+        if event.type() == QEvent.WindowStateChange:
+            if self.isMinimized() and self.settings.minimize_to_tray:
+                event.ignore()
+                QTimer.singleShot(0, self.hide)
+                self._log("Application minimized to system tray.")
+                return
+        super().changeEvent(event)
+
     def closeEvent(self, event) -> None:
-        if self.isVisible():
+        if self.settings.close_to_tray:
             event.ignore()
             self.hide()
-            self._log("Application minimized to system tray.")
+            self._log("Application hidden to system tray on window close.")
         else:
             self.duration_timer.stop()
             self.cooldown_timer.stop()
             self.monitor.stop()
             self.recorder.terminate()
             event.accept()
+            QApplication.quit()

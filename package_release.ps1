@@ -45,7 +45,7 @@ Copy-Item "dist\SpeakrCompanion.exe" -Destination $tempPkgDir
 Copy-Item "app_icon.ico" -Destination $tempPkgDir
 Copy-Item "README.md" -Destination $tempPkgDir
 
-$zipPath = Join-Path $releaseDir "SpeakrCompanion_Portable_v1.0.0.zip"
+$zipPath = Join-Path $releaseDir "SpeakrCompanion_Portable_v1.0.1.zip"
 if (Test-Path $zipPath) {
     Remove-Item -Path $zipPath -Force
 }

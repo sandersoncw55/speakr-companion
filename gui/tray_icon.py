@@ -84,7 +84,7 @@ class SystemTrayManager(QSystemTrayIcon):
             self._show_window()
 
     def _show_window(self) -> None:
-        self.main_window.show()
+        self.main_window.showNormal()
         self.main_window.raise_()
         self.main_window.activateWindow()
 
