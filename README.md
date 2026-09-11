@@ -22,6 +22,23 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 ---
 
+## 🎙️ What is Speakr?
+
+[**Speakr**](https://github.com/murtaza-nasir/speakr) is an open-source, self-hosted web application and API platform designed for automated speech-to-text transcription, speaker diarization, AI meeting summarization, and audio note-taking.
+
+### Key Speakr Capabilities:
+- **🔒 100% Self-Hosted & Private:** Runs entirely on your own local server or NAS using Docker with zero required cloud egress.
+- **⚡ Local & Cloud ASR:** Integrates with local Whisper engines (e.g. WhisperX, Apple Silicon Whisper-MLX) or cloud speech APIs.
+- **👥 Speaker Diarization:** Automatically identifies and labels distinct speakers throughout discussions.
+- **🤖 Custom AI Prompts & Tagging:** Summarizes conversations into action items, meeting minutes, and structured notes based on customizable tag templates.
+
+This Windows Companion App serves as the dedicated desktop client for Windows 11/10, silently monitoring meeting audio in the background and uploading finished sessions directly to your Speakr instance.
+
+🔗 **Upstream Speakr Repository:** [https://github.com/murtaza-nasir/speakr](https://github.com/murtaza-nasir/speakr)  
+📖 **Speakr Documentation:** [https://murtaza-nasir.github.io/speakr/](https://murtaza-nasir.github.io/speakr/)
+
+---
+
 ## ✨ Features
 
 - **Dual-Stream Audio Capture:** Simultaneously records your microphone and system audio (speakers) via WASAPI loopback without requiring active window focus.
