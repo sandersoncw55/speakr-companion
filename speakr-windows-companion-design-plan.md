@@ -6,13 +6,14 @@ tags:
   - speakr
   - windows
   - companion-app
-updated: "2026-08-28"
+updated: "2026-09-10"
 ---
 
 # Speakr Windows Companion App Design Plan
 
 ## 1. Overview
 The Speakr Windows Companion App is a background desktop utility that automates and manages audio capture on Windows. It records meeting audio (both microphone and system loopback) without requiring active window focus, provides real-time volume indicators, manages metadata (tags) before and during sessions, and drops recordings into either Speakr's auto-process Syncthing directory (`Z:\AudioRecordings\Inbox`) or directly via the Speakr REST API.
+- **GitHub Repository:** [sandersoncw55/speakr-companion](https://github.com/sandersoncw55/speakr-companion)
 
 ---
 
@@ -64,9 +65,15 @@ A background thread periodically queries active processes using `psutil`:
   - **Post-Record Discard Filter:** Discards recordings post-stop if total accumulated active audio (> −48 dB) is **< 30 seconds**, preventing junk files from short notifications or accidental sounds.
   - **Capture Mix:** Leverages the standard global system loopback + microphone mix for capture.
 
-### 2.4 Local Closed Captioning (On-Device ASR)
-- **Local Architecture:** Employs Faster-Whisper (`tiny.en` / `base.en`) on CPU/DirectML for streaming closed captioning.
-- **Zero Network Egress:** 100% on-device speech-to-text without cloud dependencies.
+### 2.4 Live Closed Captions Integration (Windows 11 Native)
+- **Windows Live Captions Shortcut & Launch Card:** Provides integrated dashboard guidance and one-click launch for Windows 11's built-in, hardware-accelerated Live Captions (<kbd>Win</kbd> + <kbd>Ctrl</kbd> + <kbd>L</kbd>).
+- **Zero Overhead:** Eliminates local ASR model loading and CPU overhead by delegating real-time system subtitling directly to Windows Core Accessibility APIs.
+
+### 2.5 Packaging & Distribution Architecture
+- **Dual-Stream Distribution Model:**
+  - **Standard Setup Wizard (`.exe` via Inno Setup 6):** User-level installation targeting `%LOCALAPPDATA%\Programs\Speakr Companion` requiring zero UAC / admin elevation. Creates Start Menu and Desktop shortcuts, registers an optional `{userstartup}` auto-launch hook, and provisions a clean Windows uninstaller.
+  - **Portable Release (`.zip`):** Self-contained archive with bundled `SpeakrCompanion.exe`, app icon, and quick-start guide for non-installer workflows.
+- **Automated Release Pipeline (`package_release.ps1`):** Orchestrates pre-build test validation, background process termination, PyInstaller binary compilation, portable ZIP generation, and Inno Setup compilation in a single command.
 
 ---
 

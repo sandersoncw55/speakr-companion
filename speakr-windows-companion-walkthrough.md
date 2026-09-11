@@ -6,12 +6,14 @@ tags:
   - speakr
   - windows
   - walkthrough
-updated: "2026-09-01"
+updated: "2026-09-10"
 ---
 
 # Speakr Windows Companion App Walkthrough
 
 We have designed, implemented, debugged, and verified the **Speakr Windows Companion App**. The app runs in the system tray and taskbar with custom artwork, capturing microphone and system audio via WASAPI Loopback, monitoring meeting processes (Zoom, Teams, Citrix), and uploading recordings.
+
+- **GitHub Repository:** [sandersoncw55/speakr-companion](https://github.com/sandersoncw55/speakr-companion)
 
 ---
 
@@ -74,8 +76,10 @@ The application files are organized under `c:\Temp\Google_Antigravity\speakr_com
 - **Non-Destructive Ingestion:** Recordings are preserved on disk after upload and never prematurely wiped.
 - **Recordings History Tab:** Comprehensive library with recording metadata (date, duration, size, trigger, upload status) and one-click **Re-Upload**, **Play**, and **Open Folder** actions.
 
-### 10. Local Closed Captioning (On-Device ASR)
-- **Local Architecture:** Faster-Whisper on CPU/DirectML with zero external network transmission.
+### 11. Upload Freeze & Crash Resolution (Thread Safety & UI Lifecycle)
+- **Root Cause 1 (PySide6 Widget Deletion Crash):** Calling `setCellWidget()` repeatedly on table refresh destroyed the `QPushButton` while its C++ click event handler was on the Qt stack, triggering an instantaneous access violation (`0xc0000005`). Fixed by updating existing `QTableWidgetItem` cells in-place and preserving button instances.
+- **Root Cause 2 (UI Thread Blocking on Audio Encode):** Synchronous encoding of multi-megabyte uncompressed WAV buffers to AAC caused Qt event loop starvation. Switched to stream-based chunked encoding (1024 frames) to prevent memory spikes and keep the UI responsive.
+- **Root Cause 3 (Storage Concurrency & Path Canonicalization):** Wrapped `RecordingsManager` operations in a `threading.RLock()`, made file saves atomic (`.tmp` + rename), and canonicalized all recording paths to prevent relative CWD discrepancies.
 
 ---
 
@@ -100,14 +104,27 @@ The application files are organized under `c:\Temp\Google_Antigravity\speakr_com
 
 ---
 
-## 📦 Distribution Guide (Windows 11)
+## 📦 Packaging & Distribution Guide (Windows 11)
 
-To compile the companion application into a single standalone `.exe` executable for deployment:
-
+### 1. One-Click Automated Release Packager
+Automated PowerShell script [`package_release.ps1`](file:///c:/Temp/Google_Antigravity/speakr_compainion/package_release.ps1) verifies tests, stops running instances, compiles PyInstaller binaries, and packages releases:
 ```powershell
-.venv\Scripts\pyinstaller.exe --clean SpeakrCompanion.spec
+powershell -ExecutionPolicy Bypass -File .\package_release.ps1
 ```
-Standalone executable location:
-`c:\Temp\Google_Antigravity\speakr_compainion\dist\SpeakrCompanion.exe`
+Output artifacts in `releases/`:
+- **Standard Windows Installer Wizard:** `releases/SpeakrCompanion-Setup-v1.0.0.exe` (~97 MB).
+- **Portable Distribution:** `releases/SpeakrCompanion_Portable_v1.0.0.zip` (~95 MB, contains standalone `SpeakrCompanion.exe`, icon, and documentation).
+- **Standalone Binary:** [`dist/SpeakrCompanion.exe`](file:///c:/Temp/Google_Antigravity/speakr_compainion/dist/SpeakrCompanion.exe).
+
+### 2. Standard Windows Setup Wizard (`installer.iss`)
+Bundled Inno Setup 6 script generates a user-space Setup Wizard (`SpeakrCompanion-Setup-v1.0.0.exe`) with Start Menu shortcuts, desktop icons, auto-start on Windows boot (`{userstartup}`), and uninstaller.
+```powershell
+iscc installer.iss
+```
+
+### 3. Enterprise Intune Deployment (`.intunewin`)
+Packaged via Microsoft Win32 Content Prep Tool for silent Intune deployment:
+- **Install Command:** `SpeakrCompanion-Setup-v1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS="startupicon"`
+- **Detection Rule:** `%LOCALAPPDATA%\Programs\Speakr Companion\SpeakrCompanion.exe`
 
 
