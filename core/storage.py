@@ -71,7 +71,8 @@ class RecordingsManager:
         duration_seconds: float = 0.0,
         tag_ids: Optional[List[int]] = None,
         status: str = "Local Only",
-        server_id: Optional[str] = None
+        server_id: Optional[str] = None,
+        notes_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """Adds a new recording record to the history."""
         abs_path = str(Path(file_path).resolve())
@@ -93,7 +94,8 @@ class RecordingsManager:
             "size_bytes": size_bytes,
             "tag_ids": tag_ids or [],
             "status": status,
-            "server_id": server_id
+            "server_id": server_id,
+            "notes_path": str(Path(notes_path).resolve()) if notes_path else ""
         }
 
         with self._lock:
@@ -101,6 +103,9 @@ class RecordingsManager:
             updated = False
             for i, item in enumerate(self._history):
                 if item.get("file_path") == abs_path or item.get("filename") == record["filename"]:
+                    # Preserve existing notes_path if not provided in update
+                    if not record["notes_path"] and item.get("notes_path"):
+                        record["notes_path"] = item["notes_path"]
                     self._history[i] = record
                     updated = True
                     break
@@ -110,6 +115,17 @@ class RecordingsManager:
 
             self.save()
         return record
+
+    def update_notes_path(self, file_path: str, notes_path: str) -> None:
+        """Associates a notes file with an existing recording record."""
+        target_name = os.path.basename(file_path)
+        abs_notes = str(Path(notes_path).resolve()) if notes_path else ""
+        with self._lock:
+            for item in self._history:
+                if item.get("file_path") == file_path or item.get("filename") == target_name:
+                    item["notes_path"] = abs_notes
+                    break
+            self.save()
 
     def update_status(self, file_path: str, status: str, server_id: Optional[str] = None) -> None:
         """Updates upload status and server ID for a recording."""

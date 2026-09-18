@@ -9,7 +9,8 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QCheckBox, QComboBox, QLineEdit, QSpinBox,
     QFileDialog, QPlainTextEdit, QGroupBox, QRadioButton, 
     QMessageBox, QDialog, QDialogButtonBox, QFormLayout,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QTextBrowser
 )
 from PySide6.QtGui import QIcon, QFont, QColor
 
@@ -72,6 +73,108 @@ class ServerDialog(QDialog):
             "url": self.url_input.text().strip().rstrip("/"),
             "api_key": self.key_input.text().strip()
         }
+
+
+class NotesViewerDialog(QDialog):
+    """Modal dialog to view, copy, and open meeting notes and Copilot scratchpad."""
+    def __init__(self, notes_path: str, recording_name: str, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.notes_path = notes_path
+        self.setWindowTitle(f"📝 Meeting Notes — {recording_name}")
+        self.resize(750, 560)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0f172a;
+                color: #f8fafc;
+            }
+            QTextBrowser {
+                background-color: #1e293b;
+                color: #f8fafc;
+                border: 1px solid #334155;
+                border-radius: 8px;
+                padding: 14px;
+                font-size: 13px;
+                line-height: 1.5;
+            }
+            QPushButton {
+                background-color: #1e293b;
+                color: #f8fafc;
+                border: 1px solid #475569;
+                border-radius: 5px;
+                padding: 6px 14px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Header
+        head_box = QHBoxLayout()
+        icon_lbl = QLabel("📝")
+        icon_lbl.setStyleSheet("font-size: 18px;")
+        head_box.addWidget(icon_lbl)
+
+        title_lbl = QLabel(f"Copilot Scratchpad & Notes: {os.path.basename(notes_path)}")
+        title_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #38bdf8;")
+        head_box.addWidget(title_lbl, 1)
+
+        layout.addLayout(head_box)
+
+        # Content Browser
+        self.browser = QTextBrowser(self)
+        self.browser.setOpenExternalLinks(True)
+        content = ""
+        if os.path.exists(notes_path):
+            try:
+                with open(notes_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except Exception as e:
+                content = f"Error reading notes file: {e}"
+        else:
+            content = "*Notes file does not exist locally.*"
+
+        self.browser.setMarkdown(content)
+        self.raw_content = content
+        layout.addWidget(self.browser)
+
+        # Buttons footer
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(8)
+
+        copy_btn = QPushButton("📋 Copy Markdown")
+        copy_btn.clicked.connect(self._copy_markdown)
+        btn_box.addWidget(copy_btn)
+
+        open_file_btn = QPushButton("📂 Open in External App")
+        open_file_btn.clicked.connect(self._open_external)
+        btn_box.addWidget(open_file_btn)
+
+        btn_box.addStretch()
+
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet("background-color: #0284c7; color: white; border: none; font-weight: bold; padding: 6px 18px;")
+        close_btn.clicked.connect(self.accept)
+        btn_box.addWidget(close_btn)
+
+        layout.addLayout(btn_box)
+
+    def _copy_markdown(self):
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.raw_content)
+        QMessageBox.information(self, "Copied", "Meeting notes copied to clipboard!")
+
+    def _open_external(self):
+        if os.path.exists(self.notes_path):
+            try:
+                os.startfile(self.notes_path)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not open file: {e}")
 
 
 class MainWindow(QMainWindow):
@@ -441,11 +544,40 @@ class MainWindow(QMainWindow):
             
             # 6. Action buttons container (only instantiate if needed)
             if rebuild_widgets or self.history_table.cellWidget(row, 6) is None:
-                action_widget = QWidget()
-                action_layout = QHBoxLayout(action_widget)
-                action_layout.setContentsMargins(4, 2, 4, 2)
-                action_layout.setSpacing(4)
-                
+                # Notes button (if notes file exists)
+                notes_path = rec.get("notes_path", "")
+                if not notes_path and file_path and os.path.exists(file_path):
+                    parent_dir = Path(file_path).parent
+                    rec_stem = Path(file_path).stem
+                    clean_ts = rec_stem.replace("Recording_", "").replace("AutoRecord_", "")
+                    matching_notes = list(parent_dir.glob(f"*{clean_ts}*.md"))
+                    if matching_notes:
+                        notes_path = str(matching_notes[0])
+                        rec["notes_path"] = notes_path
+                        self.storage.update_notes_path(file_path, notes_path)
+
+                has_notes = bool(notes_path and os.path.exists(notes_path))
+                if has_notes:
+                    notes_btn = QPushButton("📝 Notes")
+                    notes_btn.setStyleSheet("""
+                        QPushButton {
+                            padding: 3px 8px;
+                            font-size: 11px;
+                            background-color: #065f46;
+                            color: #a7f3d0;
+                            border: 1px solid #059669;
+                            border-radius: 4px;
+                            font-weight: 500;
+                        }
+                        QPushButton:hover {
+                            background-color: #047857;
+                            color: #ffffff;
+                        }
+                    """)
+                    notes_btn.setToolTip("View Copilot meeting notes, questions, and checklist")
+                    notes_btn.clicked.connect(lambda _, np=notes_path, fn=filename: self._view_meeting_notes(np, fn))
+                    action_layout.addWidget(notes_btn)
+
                 # Re-upload button
                 reup_btn = QPushButton("Re-Upload")
                 reup_btn.setStyleSheet("padding: 3px 8px; font-size: 11px;")
@@ -467,6 +599,11 @@ class MainWindow(QMainWindow):
                 action_layout.addWidget(del_btn)
                 
                 self.history_table.setCellWidget(row, 6, action_widget)
+
+    def _view_meeting_notes(self, notes_path: str, filename: str) -> None:
+        """Opens modal dialog to view and export Copilot notes."""
+        dlg = NotesViewerDialog(notes_path, filename, parent=self)
+        dlg.exec()
 
     def _reupload_file(self, file_path: str, tag_ids: List[int]) -> None:
         filename = os.path.basename(file_path)
@@ -1082,7 +1219,7 @@ class MainWindow(QMainWindow):
                 duration = self.recorder.elapsed_seconds
                 selected_tags = self.tag_selector.selected_tag_ids()
                 
-                self._stop_copilot_session()
+                notes_path = self._stop_copilot_session(file_path)
                 self.duration_timer.stop()
                 self.recorder.stop_recording()
                 
@@ -1097,7 +1234,8 @@ class MainWindow(QMainWindow):
                         trigger="manual",
                         duration_seconds=duration,
                         tag_ids=selected_tags,
-                        status="Local Only"
+                        status="Local Only",
+                        notes_path=notes_path
                     )
                     self._refresh_history_table()
                     
@@ -1285,7 +1423,7 @@ class MainWindow(QMainWindow):
         self.signaler.auto_record_finish_signal.emit(file_path, tags)
 
     def _handle_auto_record_finished(self, file_path: str, tags: List[int]) -> None:
-        self._stop_copilot_session()
+        notes_path = self._stop_copilot_session(file_path)
         self.duration_timer.stop()
         self.pause_btn.setEnabled(False)
         self._log(f"[Monitor] Auto-recording finished: {os.path.basename(file_path)}")
@@ -1303,7 +1441,8 @@ class MainWindow(QMainWindow):
                 trigger=trigger_type,
                 duration_seconds=self.recorder.elapsed_seconds,
                 tag_ids=combined_tags,
-                status="Local Only"
+                status="Local Only",
+                notes_path=notes_path
             )
             self._refresh_history_table()
             
@@ -1589,7 +1728,7 @@ class MainWindow(QMainWindow):
         self.hud.show()
         self._log(f"[Copilot] Live session started (Mode: {self.settings.meeting_mode}, ASR: {self.settings.asr_provider}, LLM: {self.settings.llm_provider})")
 
-    def _stop_copilot_session(self) -> None:
+    def _stop_copilot_session(self, associated_file_path: Optional[str] = None) -> Optional[str]:
         """Stops copilot agent, flushes notes to Markdown, and unhooks tap."""
         self.recorder.audio_tap_callback = None
 
@@ -1604,19 +1743,30 @@ class MainWindow(QMainWindow):
                 asr_name_or_key=self.settings.asr_provider
             )
 
+        notes_saved_path: Optional[str] = None
         if self.copilot_memory and (self.copilot_memory.live_notes or self.copilot_memory.suggested_questions):
             notes_md = self.copilot_memory.get_scratchpad_markdown()
             rec_dir = self.settings.resolved_recordings_dir
             timestamp_str = time.strftime("%Y-%m-%d_%H%M%S")
-            notes_path = rec_dir / f"Meeting_Notes_{timestamp_str}.md"
+            if associated_file_path:
+                stem = Path(associated_file_path).stem
+                notes_filename = f"{stem}_Notes.md"
+            else:
+                notes_filename = f"Meeting_Notes_{timestamp_str}.md"
+            notes_path = rec_dir / notes_filename
             try:
                 with open(notes_path, "w", encoding="utf-8") as f:
                     f.write(f"# Meeting Live Notes ({timestamp_str})\n\n")
                     f.write(f"**Meeting Mode:** {self.settings.meeting_mode.capitalize()}\n\n")
                     f.write(notes_md)
                 self._log(f"[Copilot] Live notes saved to: {notes_path.name}")
+                notes_saved_path = str(notes_path.resolve())
+                if associated_file_path:
+                    self.storage.update_notes_path(associated_file_path, notes_saved_path)
             except Exception as ex:
                 self._log(f"[Copilot] Error saving live notes: {ex}")
+
+        return notes_saved_path
 
     def _on_copilot_transcription(self, segment: AudioSegment, text: str) -> None:
         if self.hud:

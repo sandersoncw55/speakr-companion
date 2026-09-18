@@ -328,6 +328,54 @@ def test_lm_studio_configuration():
 
     print("[OK] LM Studio configuration & privacy mode passed.")
 
+def test_recordings_notes_linking_and_viewer():
+    print("Testing Recordings Manager Notes Linking & NotesViewerDialog...")
+    import tempfile
+    from pathlib import Path
+    from core.config import Settings
+    from core.storage import RecordingsManager
+    from gui.main_window import NotesViewerDialog
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    
+    cfg = Settings()
+    mgr = RecordingsManager(cfg)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_rec = os.path.join(tmpdir, "Recording_2026-09-18_test.mp4")
+        fake_notes = os.path.join(tmpdir, "Meeting_Notes_2026-09-18_test.md")
+        
+        with open(fake_rec, "w") as f:
+            f.write("fake audio content")
+        with open(fake_notes, "w", encoding="utf-8") as f:
+            f.write("# Meeting Notes Test\n\n- [x] Question 1 asked\n- [ ] Question 2 pending\n- Follow up note")
+
+        # 1. Add recording with notes_path
+        rec = mgr.add_recording(
+            file_path=fake_rec,
+            trigger="manual",
+            duration_seconds=42.0,
+            status="Local Only",
+            notes_path=fake_notes
+        )
+        assert rec["notes_path"] == str(Path(fake_notes).resolve())
+        
+        # 2. Update notes path
+        another_notes = os.path.join(tmpdir, "Updated_Notes.md")
+        mgr.update_notes_path(fake_rec, another_notes)
+        all_recs = mgr.get_recordings()
+        matched = [r for r in all_recs if r["file_path"] == str(Path(fake_rec).resolve())]
+        assert len(matched) == 1
+        assert matched[0]["notes_path"] == str(Path(another_notes).resolve())
+
+        # 3. NotesViewerDialog instantiation
+        dlg = NotesViewerDialog(fake_notes, "Recording_2026-09-18_test.mp4")
+        assert "Meeting Notes Test" in dlg.browser.toPlainText()
+        dlg.close()
+
+    print("[OK] Recordings Manager Notes Linking & NotesViewerDialog passed.")
+
 if __name__ == "__main__":
     test_memory_and_scratchpad()
     test_prompts_and_tag_personas()
@@ -339,5 +387,6 @@ if __name__ == "__main__":
     test_hud_controls_and_splitter()
     test_suggested_questions_accumulation()
     test_lm_studio_configuration()
+    test_recordings_notes_linking_and_viewer()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
 

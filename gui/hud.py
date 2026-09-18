@@ -476,6 +476,26 @@ class FloatingCopilotHUD(QWidget):
         notes_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #34d399; letter-spacing: 0.5px;")
         notes_head.addWidget(notes_title)
         notes_head.addStretch()
+
+        self.open_notes_folder_btn = QPushButton("📁 Notes Folder")
+        self.open_notes_folder_btn.setToolTip("Open recordings and meeting notes directory")
+        self.open_notes_folder_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                color: #94a3b8;
+                font-size: 10px;
+                padding: 1px 6px;
+            }
+            QPushButton:hover {
+                background: #1e293b;
+                color: #34d399;
+                border-color: #059669;
+            }
+        """)
+        self.open_notes_folder_btn.clicked.connect(self._open_notes_folder)
+        notes_head.addWidget(self.open_notes_folder_btn)
         notes_layout.addLayout(notes_head)
 
         # Notes list with checkboxes
@@ -608,6 +628,17 @@ class FloatingCopilotHUD(QWidget):
 
     def _clear_transcript_feed(self):
         self.ticker_box.clear()
+
+    def _open_notes_folder(self):
+        try:
+            from core.config import Settings
+            cfg = Settings()
+            rec_dir = cfg.resolved_recordings_dir
+            if rec_dir.exists():
+                import os
+                os.startfile(str(rec_dir))
+        except Exception as e:
+            print(f"[HUD] Error opening notes folder: {e}")
 
     def _submit_adhoc_query(self):
         query = self.adhoc_input.text().strip()
