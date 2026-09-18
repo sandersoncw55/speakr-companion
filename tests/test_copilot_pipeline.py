@@ -118,6 +118,105 @@ def test_audio_recorder_tap():
     rec.terminate()
     print("[OK] AudioRecorder tap integration passed.")
 
+def test_offline_copilot_engine():
+    print("Testing OfflineExtractiveEngine and CopilotAgent offline fallback...")
+    from core.copilot.agent import OfflineExtractiveEngine, CopilotAgent
+    
+    engine = OfflineExtractiveEngine()
+    mem = CopilotMemory()
+    mem.add_transcript("you", "Can we deploy the new firmware before Friday?", time.time(), 1)
+    mem.add_transcript("participants", "I will take care of updating the staging cluster and verify the rollout.", time.time(), 2)
+    mem.add_transcript("participants", "We might have a delay if the SAN controller fails over.", time.time(), 3)
+    
+    # 1. Periodic offline generation
+    res = engine.generate_periodic(mem.turns, [])
+    assert "suggested_questions" in res
+    assert len(res["suggested_questions"]) > 0
+    assert "live_notes" in res
+    assert "action_items" in res
+    assert len(res["action_items"]) > 0
+    
+    # 2. Quick actions offline
+    summary = engine.generate_quick_action("catch_me_up", mem.turns)
+    assert "Recent Meeting Summary" in summary
+    assert "deploy the new firmware" in summary
+
+    questions_res = engine.generate_quick_action("what_to_ask", mem.turns)
+    assert "Suggested Questions" in questions_res
+
+    owners_res = engine.generate_quick_action("clarify_ownership", mem.turns)
+    assert "Action & Ownership" in owners_res or "staging cluster" in owners_res
+
+    risks_res = engine.generate_quick_action("spot_risks", mem.turns)
+    assert "Risks" in risks_res
+
+    custom_res = engine.generate_quick_action("SAN firmware", mem.turns)
+    assert "Mentions relevant to" in custom_res or "context" in custom_res
+
+    # 3. CopilotAgent with provider="offline" executes without API keys
+    results_received = []
+    agent = CopilotAgent(mem, on_results_callback=lambda r: results_received.append(r), cadence_seconds=1.0)
+    agent.configure(provider="offline", api_key="")
+    
+    # Run immediate quick prompt
+    agent.run_quick_prompt("catch_me_up")
+    time.sleep(0.5)
+    assert len(results_received) > 0
+    assert results_received[0]["type"] == "quick_action"
+    assert "Recent Meeting Summary" in results_received[0]["text"]
+    print("[OK] OfflineExtractiveEngine and CopilotAgent offline fallback passed.")
+
+def test_hud_controls_and_splitter():
+    print("Testing FloatingCopilotHUD and 3-way resizable splitter...")
+    from PySide6.QtWidgets import QApplication
+    from gui.hud import FloatingCopilotHUD, TwoLineNoteEdit
+    
+    app = QApplication.instance() or QApplication([])
+    mem = CopilotMemory()
+    from core.copilot.agent import CopilotAgent
+    agent = CopilotAgent(mem, on_results_callback=lambda r: None)
+    
+    hud = FloatingCopilotHUD(mem, agent, initial_opacity=0.85)
+    
+    # Opacity check
+    assert abs(hud.windowOpacity() - 0.85) < 0.01
+    
+    # Mode combo check
+    assert hud.mode_combo.count() == 3
+    assert hud.mode_combo.findData("virtual") >= 0
+    assert hud.mode_combo.findData("in_person") >= 0
+    assert hud.mode_combo.findData("hybrid") >= 0
+    
+    # ASR combo check
+    assert hud.asr_combo.count() == 4
+    assert hud.asr_combo.findData("local") >= 0
+    assert hud.asr_combo.findData("mac_lan") >= 0
+    
+    # 3-way Splitter check: 3 widgets (Questions, Scratchpad, Transcript)
+    assert hud.splitter.count() == 3
+    
+    # TwoLineNoteEdit check
+    assert isinstance(hud.add_note_input, TwoLineNoteEdit)
+    hud.add_note_input.setPlainText("Test custom note item")
+    hud._add_custom_note()
+    assert "Test custom note item" in mem.live_notes
+    
+    # Pill mode toggle check
+    hud.show()
+    assert hud.is_pill_mode is False
+    hud._toggle_pill_mode()
+    assert hud.is_pill_mode is True
+    assert hud.pill_widget.isVisible() is True
+    assert hud.full_widget.isVisible() is False
+    
+    # Restore from pill mode
+    hud._toggle_pill_mode()
+    assert hud.is_pill_mode is False
+    assert hud.full_widget.isVisible() is True
+    
+    hud.close()
+    print("[OK] FloatingCopilotHUD and 3-way resizable splitter passed.")
+
 if __name__ == "__main__":
     test_memory_and_scratchpad()
     test_prompts_and_tag_personas()
@@ -125,4 +224,7 @@ if __name__ == "__main__":
     test_asr_provider_manager()
     test_local_whisper_transcription()
     test_audio_recorder_tap()
+    test_offline_copilot_engine()
+    test_hud_controls_and_splitter()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
+

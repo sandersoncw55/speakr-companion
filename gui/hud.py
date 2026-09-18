@@ -1,11 +1,11 @@
 import time
 from typing import Optional, List, Dict, Any
-from PySide6.QtCore import Qt, Signal, QObject, QTimer, QSize
-from PySide6.QtGui import QIcon, QFont, QColor, QClipboard, QAction
+from PySide6.QtCore import Qt, Signal, QObject, QTimer, QSize, QRect
+from PySide6.QtGui import QIcon, QFont, QColor, QClipboard, QAction, QKeyEvent
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QLineEdit, QTextEdit, QFrame,
-    QScrollArea, QSplitter, QCheckBox, QMenu, QSlider, QApplication
+    QListWidget, QListWidgetItem, QLineEdit, QTextEdit, QPlainTextEdit,
+    QFrame, QSplitter, QCheckBox, QSlider, QApplication, QComboBox
 )
 from core.config import get_app_icon
 from core.copilot.memory import CopilotMemory, SuggestedQuestion
@@ -16,6 +16,39 @@ class CopilotSignals(QObject):
     agent_results_received = Signal(dict)
     quick_action_received = Signal(str, str)               # title, text
     scratchpad_updated = Signal()
+
+
+class TwoLineNoteEdit(QPlainTextEdit):
+    """Multi-line note input that submits on Enter and inserts newline on Shift+Enter."""
+    enter_pressed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(48)
+        self.setPlaceholderText("+ Add note or context... (Enter to add, Shift+Enter for newline)")
+        self.setStyleSheet("""
+            QPlainTextEdit {
+                background-color: #0f172a;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding: 4px 6px;
+                color: #f8fafc;
+                font-size: 12px;
+                line-height: 1.2;
+            }
+            QPlainTextEdit:focus {
+                border: 1px solid #10b981;
+            }
+        """)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if not (event.modifiers() & Qt.ShiftModifier):
+                event.accept()
+                self.enter_pressed.emit()
+                return
+        super().keyPressEvent(event)
+
 
 class QuestionItemWidget(QWidget):
     """Widget rendering an individual suggested question with Copy and Mark-Asked actions."""
@@ -86,11 +119,18 @@ class QuestionItemWidget(QWidget):
 class FloatingCopilotHUD(QWidget):
     """Always-on-top, translucent in-call meeting intelligence HUD."""
 
-    def __init__(self, memory: CopilotMemory, copilot_agent, parent=None):
+    # Public Qt signals for synchronization with main window
+    meeting_mode_changed = Signal(str)
+    asr_provider_changed = Signal(str)
+    opacity_changed = Signal(float)
+
+    def __init__(self, memory: CopilotMemory, copilot_agent, initial_opacity: float = 0.92, parent=None):
         super().__init__(parent)
         self.memory = memory
         self.agent = copilot_agent
         self.signals = CopilotSignals()
+        self.is_pill_mode = False
+        self._expanded_geometry: Optional[QRect] = None
 
         # Connect thread-safe signals
         self.signals.transcription_received.connect(self._on_transcription_gui)
@@ -101,8 +141,9 @@ class FloatingCopilotHUD(QWidget):
         self.setWindowTitle("Speakr Copilot HUD")
         self.setWindowIcon(get_app_icon())
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint | Qt.WindowMinMaxButtonsHint)
-        self.resize(460, 680)
-        self.setMinimumSize(380, 480)
+        self.resize(480, 700)
+        self.setMinimumSize(360, 440)
+        self.setWindowOpacity(initial_opacity)
 
         # Overall styling (dark translucent glassmorphism)
         self.setStyleSheet("""
@@ -122,47 +163,186 @@ class FloatingCopilotHUD(QWidget):
             QScrollBar::handle:vertical {
                 background: #475569; min-height: 20px; border-radius: 3px;
             }
+            QComboBox {
+                background-color: #1e293b;
+                color: #f8fafc;
+                border: 1px solid #475569;
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 14px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1e293b;
+                color: #f8fafc;
+                selection-background-color: #0284c7;
+                border: 1px solid #475569;
+            }
         """)
 
-        self._setup_ui()
+        self._setup_ui(initial_opacity)
 
-    def _setup_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(12, 10, 12, 10)
-        main_layout.setSpacing(10)
+    def _setup_ui(self, initial_opacity: float):
+        self.root_layout = QVBoxLayout(self)
+        self.root_layout.setContentsMargins(8, 8, 8, 8)
+        self.root_layout.setSpacing(6)
+
+        # --- Pill Widget (Collapsed Bar) ---
+        self.pill_widget = QFrame()
+        self.pill_widget.setObjectName("card")
+        self.pill_widget.setStyleSheet("""
+            QFrame#card {
+                background-color: #0f172a;
+                border: 1px solid #38bdf8;
+                border-radius: 18px;
+                padding: 2px 8px;
+            }
+        """)
+        pill_layout = QHBoxLayout(self.pill_widget)
+        pill_layout.setContentsMargins(6, 4, 6, 4)
+        pill_layout.setSpacing(6)
+
+        self.pill_dot = QLabel("🔴")
+        pill_layout.addWidget(self.pill_dot)
+
+        self.pill_text = QLabel("Listening for conversation...")
+        self.pill_text.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 500;")
+        pill_layout.addWidget(self.pill_text, 1)
+
+        self.pill_expand_btn = QPushButton("🗖")
+        self.pill_expand_btn.setToolTip("Expand Copilot HUD")
+        self.pill_expand_btn.setFixedSize(24, 24)
+        self.pill_expand_btn.setStyleSheet("""
+            QPushButton { background: #1e293b; border: 1px solid #334155; border-radius: 4px; font-size: 11px; }
+            QPushButton:hover { background: #0284c7; color: white; }
+        """)
+        self.pill_expand_btn.clicked.connect(self._toggle_pill_mode)
+        pill_layout.addWidget(self.pill_expand_btn)
+
+        self.pill_close_btn = QPushButton("✕")
+        self.pill_close_btn.setToolTip("Close HUD")
+        self.pill_close_btn.setFixedSize(24, 24)
+        self.pill_close_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: none; color: #94a3b8; font-size: 12px; }
+            QPushButton:hover { color: #ef4444; }
+        """)
+        self.pill_close_btn.clicked.connect(self.hide)
+        pill_layout.addWidget(self.pill_close_btn)
+
+        self.pill_widget.setVisible(False)
+        self.root_layout.addWidget(self.pill_widget)
+
+        # --- Full Container Widget ---
+        self.full_widget = QWidget()
+        full_layout = QVBoxLayout(self.full_widget)
+        full_layout.setContentsMargins(4, 2, 4, 2)
+        full_layout.setSpacing(8)
 
         # --- Header Bar ---
         header = QHBoxLayout()
+        header.setSpacing(6)
+        
         self.status_dot = QLabel("🟢")
         self.status_title = QLabel("LIVE COPILOT")
         self.status_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #38bdf8; letter-spacing: 0.5px;")
-        
-        self.mode_badge = QLabel("Virtual")
-        self.mode_badge.setStyleSheet("background: #0284c7; color: white; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
-
-        self.asr_badge = QLabel("Local CPU")
-        self.asr_badge.setStyleSheet("background: #334155; color: #cbd5e1; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
-
         header.addWidget(self.status_dot)
         header.addWidget(self.status_title)
-        header.addWidget(self.mode_badge)
-        header.addWidget(self.asr_badge)
+
+        # Mode interactive dropdown
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("🌐 Virtual", "virtual")
+        self.mode_combo.addItem("🎙️ In-Person", "in_person")
+        self.mode_combo.addItem("🔀 Hybrid", "hybrid")
+        self.mode_combo.setToolTip("Meeting Audio Mode")
+        self.mode_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #0369a1; color: white; border: 1px solid #0284c7;
+                border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: bold;
+            }
+            QComboBox:hover { background-color: #0284c7; }
+        """)
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_combo_changed)
+        header.addWidget(self.mode_combo)
+
+        # ASR interactive dropdown
+        self.asr_combo = QComboBox()
+        self.asr_combo.addItem("Local CPU", "local")
+        self.asr_combo.addItem("Mac LAN", "mac_lan")
+        self.asr_combo.addItem("Groq Cloud", "groq")
+        self.asr_combo.addItem("OpenAI Cloud", "openai")
+        self.asr_combo.setToolTip("Speech-to-Text (ASR) Engine")
+        self.asr_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #334155; color: #cbd5e1; border: 1px solid #475569;
+                border-radius: 4px; padding: 2px 6px; font-size: 11px;
+            }
+            QComboBox:hover { background-color: #475569; }
+        """)
+        self.asr_combo.currentIndexChanged.connect(self._on_asr_combo_changed)
+        header.addWidget(self.asr_combo)
+
         header.addStretch()
+
+        # Opacity Slider
+        opacity_box = QHBoxLayout()
+        opacity_box.setSpacing(3)
+        opacity_icon = QLabel("🌓")
+        opacity_icon.setToolTip("Adjust HUD Window Opacity (60% - 100%)")
+        opacity_box.addWidget(opacity_icon)
+
+        self.opacity_slider = QSlider(Qt.Horizontal)
+        self.opacity_slider.setRange(60, 100)
+        self.opacity_slider.setValue(int(initial_opacity * 100))
+        self.opacity_slider.setFixedWidth(65)
+        self.opacity_slider.setToolTip(f"Opacity: {self.opacity_slider.value()}%")
+        self.opacity_slider.setStyleSheet("""
+            QSlider::groove:horizontal { height: 4px; background: #334155; border-radius: 2px; }
+            QSlider::handle:horizontal { background: #38bdf8; width: 10px; margin: -3px 0; border-radius: 5px; }
+        """)
+        self.opacity_slider.valueChanged.connect(self._on_opacity_slider_changed)
+        opacity_box.addWidget(self.opacity_slider)
+        header.addLayout(opacity_box)
 
         # Pin On Top toggle button
         self.pin_btn = QPushButton("📌")
         self.pin_btn.setCheckable(True)
         self.pin_btn.setChecked(True)
-        self.pin_btn.setFixedSize(28, 24)
+        self.pin_btn.setFixedSize(26, 24)
         self.pin_btn.setToolTip("Toggle Always on Top")
         self.pin_btn.setStyleSheet("""
-            QPushButton { background: #1e293b; border: 1px solid #334155; border-radius: 4px; font-size: 12px; }
+            QPushButton { background: #1e293b; border: 1px solid #334155; border-radius: 4px; font-size: 11px; }
             QPushButton:checked { background: #0284c7; border: 1px solid #38bdf8; }
         """)
         self.pin_btn.clicked.connect(self._toggle_pin)
         header.addWidget(self.pin_btn)
 
-        main_layout.addLayout(header)
+        # Minimize to Pill Button
+        self.min_pill_btn = QPushButton("—")
+        self.min_pill_btn.setToolTip("Minimize to Floating Pill")
+        self.min_pill_btn.setFixedSize(26, 24)
+        self.min_pill_btn.setStyleSheet("""
+            QPushButton { background: #1e293b; border: 1px solid #334155; border-radius: 4px; font-size: 11px; font-weight: bold; }
+            QPushButton:hover { background: #475569; color: white; }
+        """)
+        self.min_pill_btn.clicked.connect(self._toggle_pill_mode)
+        header.addWidget(self.min_pill_btn)
+
+        # Close Button
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setToolTip("Close Copilot HUD")
+        self.close_btn.setFixedSize(26, 24)
+        self.close_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: none; color: #94a3b8; font-size: 12px; }
+            QPushButton:hover { color: #ef4444; }
+        """)
+        self.close_btn.clicked.connect(self.hide)
+        header.addWidget(self.close_btn)
+
+        full_layout.addLayout(header)
 
         # --- Quick Action Bar ---
         quick_frame = QFrame()
@@ -213,17 +393,17 @@ class FloatingCopilotHUD(QWidget):
         self.adhoc_input.returnPressed.connect(self._submit_adhoc_query)
         quick_layout.addWidget(self.adhoc_input)
 
-        main_layout.addWidget(quick_frame)
+        full_layout.addWidget(quick_frame)
 
-        # --- Splitter between Questions and Scratchpad ---
-        splitter = QSplitter(Qt.Vertical)
-        splitter.setStyleSheet("QSplitter::handle { background-color: #334155; height: 3px; }")
+        # --- 3-Pane Resizable Vertical Splitter (Questions, Scratchpad, Transcript) ---
+        self.splitter = QSplitter(Qt.Vertical)
+        self.splitter.setStyleSheet("QSplitter::handle { background-color: #334155; height: 4px; border-radius: 2px; }")
 
         # --- Section 1: Suggested Questions Card ---
         q_frame = QFrame()
         q_frame.setObjectName("card")
         q_card_layout = QVBoxLayout(q_frame)
-        q_card_layout.setContentsMargins(10, 10, 10, 10)
+        q_card_layout.setContentsMargins(10, 8, 10, 8)
         q_card_layout.setSpacing(6)
 
         q_head = QLabel("💡 SUGGESTED QUESTIONS & FOLLOW-UPS")
@@ -232,66 +412,55 @@ class FloatingCopilotHUD(QWidget):
 
         self.questions_list = QListWidget()
         self.questions_list.setStyleSheet("""
-            QListWidget {
-                background: transparent; border: none;
-            }
+            QListWidget { background: transparent; border: none; }
             QListWidget::item {
                 background-color: #0f172a; border: 1px solid #334155; border-radius: 6px;
-                margin-bottom: 6px;
+                margin-bottom: 5px;
             }
         """)
         q_card_layout.addWidget(self.questions_list)
-        splitter.addWidget(q_frame)
+        self.splitter.addWidget(q_frame)
 
         # --- Section 2: Interactive Live Scratchpad ---
         notes_frame = QFrame()
         notes_frame.setObjectName("card")
         notes_layout = QVBoxLayout(notes_frame)
-        notes_layout.setContentsMargins(10, 10, 10, 10)
+        notes_layout.setContentsMargins(10, 8, 10, 8)
         notes_layout.setSpacing(6)
 
         notes_head = QHBoxLayout()
-        notes_title = QLabel("📝 LIVE SCRATCHPAD (Checklist & Notes)")
+        notes_title = QLabel("📝 LIVE SCRATCHPAD (Checklist & Context)")
         notes_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #34d399; letter-spacing: 0.5px;")
         notes_head.addWidget(notes_title)
         notes_head.addStretch()
-
         notes_layout.addLayout(notes_head)
 
         # Notes list with checkboxes
         self.notes_list = QListWidget()
         self.notes_list.setStyleSheet("""
-            QListWidget {
-                background: transparent; border: none;
-            }
+            QListWidget { background: transparent; border: none; }
             QListWidget::item {
                 background-color: #0f172a; border: 1px solid #334155; border-radius: 6px;
-                padding: 4px 6px; margin-bottom: 4px; color: #cbd5e1; font-size: 12px;
+                padding: 3px 6px; margin-bottom: 4px; color: #cbd5e1; font-size: 12px;
             }
             QListWidget::item:hover { background-color: #1e293b; }
         """)
         self.notes_list.itemChanged.connect(self._on_note_item_changed)
         notes_layout.addWidget(self.notes_list)
 
-        # Add custom note input
+        # 2-line Add custom note input
         add_note_box = QHBoxLayout()
-        self.add_note_input = QLineEdit()
-        self.add_note_input.setPlaceholderText("+ Add your own note or context...")
-        self.add_note_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #0f172a; border: 1px solid #334155; border-radius: 4px;
-                padding: 4px 8px; color: #f8fafc; font-size: 12px;
-            }
-            QLineEdit:focus { border: 1px solid #10b981; }
-        """)
-        self.add_note_input.returnPressed.connect(self._add_custom_note)
-        add_note_box.addWidget(self.add_note_input)
+        add_note_box.setSpacing(6)
+        self.add_note_input = TwoLineNoteEdit()
+        self.add_note_input.enter_pressed.connect(self._add_custom_note)
+        add_note_box.addWidget(self.add_note_input, 1)
 
-        add_btn = QPushButton("Add")
+        add_btn = QPushButton("Add Note")
+        add_btn.setFixedHeight(48)
         add_btn.setStyleSheet("""
             QPushButton {
                 background-color: #059669; color: white; border: none; border-radius: 4px;
-                padding: 4px 10px; font-size: 11px; font-weight: bold;
+                padding: 4px 12px; font-size: 11px; font-weight: bold;
             }
             QPushButton:hover { background-color: #047857; }
         """)
@@ -299,31 +468,46 @@ class FloatingCopilotHUD(QWidget):
         add_note_box.addWidget(add_btn)
         notes_layout.addLayout(add_note_box)
 
-        splitter.addWidget(notes_frame)
-        main_layout.addWidget(splitter, 1)
+        self.splitter.addWidget(notes_frame)
 
-        # --- Section 3: Live Transcript Ticker (Collapsible) ---
-        self.ticker_toggle_btn = QPushButton("▼ Live Transcript Feed")
-        self.ticker_toggle_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent; border: none; color: #94a3b8; font-size: 11px;
-                text-align: left; padding: 2px 0px; font-weight: 500;
-            }
-            QPushButton:hover { color: #f8fafc; }
+        # --- Section 3: Live Transcript Feed (Card inside Splitter) ---
+        transcript_frame = QFrame()
+        transcript_frame.setObjectName("card")
+        transcript_layout = QVBoxLayout(transcript_frame)
+        transcript_layout.setContentsMargins(10, 8, 10, 8)
+        transcript_layout.setSpacing(6)
+
+        tr_head = QHBoxLayout()
+        tr_title = QLabel("💬 LIVE TRANSCRIPT FEED")
+        tr_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #a78bfa; letter-spacing: 0.5px;")
+        tr_head.addWidget(tr_title)
+        tr_head.addStretch()
+
+        clear_tr_btn = QPushButton("Clear Feed")
+        clear_tr_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: none; color: #64748b; font-size: 10px; }
+            QPushButton:hover { color: #cbd5e1; }
         """)
-        self.ticker_toggle_btn.clicked.connect(self._toggle_ticker)
-        main_layout.addWidget(self.ticker_toggle_btn)
+        clear_tr_btn.clicked.connect(self._clear_transcript_feed)
+        tr_head.addWidget(clear_tr_btn)
+        transcript_layout.addLayout(tr_head)
 
         self.ticker_box = QTextEdit()
         self.ticker_box.setReadOnly(True)
-        self.ticker_box.setFixedHeight(90)
         self.ticker_box.setStyleSheet("""
             QTextEdit {
                 background-color: #020617; border: 1px solid #1e293b; border-radius: 6px;
                 color: #94a3b8; font-size: 11px; font-family: monospace;
             }
         """)
-        main_layout.addWidget(self.ticker_box)
+        transcript_layout.addWidget(self.ticker_box)
+        self.splitter.addWidget(transcript_frame)
+
+        # Set balanced initial proportions for all 3 panes
+        self.splitter.setSizes([180, 240, 180])
+        full_layout.addWidget(self.splitter, 1)
+
+        self.root_layout.addWidget(self.full_widget, 1)
 
     def _quick_btn_style(self, bg_color: str) -> str:
         return f"""
@@ -342,10 +526,45 @@ class FloatingCopilotHUD(QWidget):
             self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
         self.show()
 
-    def _toggle_ticker(self):
-        visible = self.ticker_box.isVisible()
-        self.ticker_box.setVisible(not visible)
-        self.ticker_toggle_btn.setText("▼ Live Transcript Feed" if not visible else "▲ Hide Transcript Feed")
+    def _toggle_pill_mode(self):
+        """Collapses HUD into a floating pill bar or restores full HUD."""
+        if not self.is_pill_mode:
+            # Enter pill mode
+            self._expanded_geometry = self.geometry()
+            self.full_widget.setVisible(False)
+            self.pill_widget.setVisible(True)
+            self.setMaximumHeight(54)
+            self.resize(380, 50)
+            self.is_pill_mode = True
+        else:
+            # Exit pill mode
+            self.setMaximumHeight(16777215)
+            self.pill_widget.setVisible(False)
+            self.full_widget.setVisible(True)
+            if self._expanded_geometry:
+                self.setGeometry(self._expanded_geometry)
+            else:
+                self.resize(480, 700)
+            self.is_pill_mode = False
+
+    def _on_opacity_slider_changed(self, value: int):
+        opacity = value / 100.0
+        self.setWindowOpacity(opacity)
+        self.opacity_slider.setToolTip(f"Opacity: {value}%")
+        self.opacity_changed.emit(opacity)
+
+    def _on_mode_combo_changed(self, index: int):
+        mode = self.mode_combo.currentData()
+        if mode:
+            self.meeting_mode_changed.emit(mode)
+
+    def _on_asr_combo_changed(self, index: int):
+        provider = self.asr_combo.currentData()
+        if provider:
+            self.asr_provider_changed.emit(provider)
+
+    def _clear_transcript_feed(self):
+        self.ticker_box.clear()
 
     def _submit_adhoc_query(self):
         query = self.adhoc_input.text().strip()
@@ -354,7 +573,7 @@ class FloatingCopilotHUD(QWidget):
             self.agent.run_quick_prompt(query)
 
     def _add_custom_note(self):
-        text = self.add_note_input.text().strip()
+        text = self.add_note_input.toPlainText().strip()
         if text:
             self.add_note_input.clear()
             self.memory.add_user_note(text)
@@ -376,21 +595,24 @@ class FloatingCopilotHUD(QWidget):
         self._render_questions()
 
     def _on_note_item_changed(self, item: QListWidgetItem):
-        # User checked/unchecked a note item
         pass
 
     def _on_transcription_gui(self, channel: str, text: str, timestamp: float, turn_id: int):
-        """Append to memory and update ticker."""
+        """Append to memory, update ticker, and update pill text."""
         turn = self.memory.add_transcript(channel, text, timestamp, turn_id)
         
-        # Format ticker entry
         color = "#38bdf8" if channel == "you" else ("#a78bfa" if channel == "participants" else "#34d399")
         entry_html = f"<div style='margin-bottom: 3px;'><span style='color: {color}; font-weight: bold;'>{turn.speaker_label} ({turn.formatted_time}):</span> <span style='color: #e2e8f0;'>{turn.text}</span></div>"
         
         self.ticker_box.append(entry_html)
-        # Scroll to bottom
         scrollbar = self.ticker_box.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+        # Update pill text snippet
+        clean_snip = turn.text.replace("\n", " ").strip()
+        if len(clean_snip) > 50:
+            clean_snip = clean_snip[:47] + "..."
+        self.pill_text.setText(f"{turn.speaker_label}: {clean_snip}")
 
     def _on_agent_results_gui(self, results: dict):
         """Refreshes suggested questions and notes cards."""
@@ -398,7 +620,7 @@ class FloatingCopilotHUD(QWidget):
         self._render_notes()
 
     def _on_quick_action_gui(self, title: str, text: str):
-        """Displays quick-action response in notes or popout."""
+        """Displays quick-action response in notes."""
         self.memory.add_user_note(f"⚡ [{title}] {text}")
         self._render_notes()
 
@@ -417,6 +639,13 @@ class FloatingCopilotHUD(QWidget):
             item.setSizeHint(widget.sizeHint())
             self.questions_list.addItem(item)
             self.questions_list.setItemWidget(item, widget)
+
+        # If in pill mode or idle, feature top question in pill
+        if pending_questions:
+            top_q = pending_questions[0].question.replace("\n", " ").strip()
+            if len(top_q) > 50:
+                top_q = top_q[:47] + "..."
+            self.pill_text.setText(f"💡 {top_q}")
 
     def _render_notes(self):
         self.notes_list.blockSignals(True)
@@ -440,15 +669,25 @@ class FloatingCopilotHUD(QWidget):
 
         self.notes_list.blockSignals(False)
 
-    def update_status(self, recording: bool, paused: bool, meeting_mode: str, asr_name: str):
-        """Updates header badges and status dot."""
-        if recording:
-            if paused:
-                self.status_dot.setText("🟡")
-            else:
-                self.status_dot.setText("🔴")
-        else:
-            self.status_dot.setText("🟢")
+    def update_status(self, recording: bool, paused: bool, meeting_mode: str, asr_name_or_key: str):
+        """Updates header dropdowns, status dot, and pill state."""
+        dot_str = "🟡" if paused else ("🔴" if recording else "🟢")
+        self.status_dot.setText(dot_str)
+        self.pill_dot.setText(dot_str)
 
-        self.mode_badge.setText(meeting_mode.capitalize())
-        self.asr_badge.setText(asr_name)
+        # Sync meeting mode combo safely
+        self.mode_combo.blockSignals(True)
+        mode_idx = self.mode_combo.findData(meeting_mode)
+        if mode_idx >= 0:
+            self.mode_combo.setCurrentIndex(mode_idx)
+        self.mode_combo.blockSignals(False)
+
+        # Sync ASR combo safely
+        self.asr_combo.blockSignals(True)
+        # Check by data or text
+        asr_idx = self.asr_combo.findData(asr_name_or_key)
+        if asr_idx < 0:
+            asr_idx = self.asr_combo.findText(asr_name_or_key, Qt.MatchContains)
+        if asr_idx >= 0:
+            self.asr_combo.setCurrentIndex(asr_idx)
+        self.asr_combo.blockSignals(False)

@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from PySide6.QtCore import Qt, Signal, QObject, QTimer, QEvent
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QLabel, QCheckBox, QComboBox, QLineEdit, 
+    QPushButton, QLabel, QCheckBox, QComboBox, QLineEdit, QSpinBox,
     QFileDialog, QPlainTextEdit, QGroupBox, QRadioButton, 
     QMessageBox, QDialog, QDialogButtonBox, QFormLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
@@ -514,77 +514,104 @@ class MainWindow(QMainWindow):
 
     def _setup_preferences_tab(self) -> None:
         layout = QVBoxLayout(self.preferences_tab)
+        layout.setContentsMargins(6, 6, 6, 6)
+
+        self.pref_subtabs = QTabWidget(self.preferences_tab)
+        layout.addWidget(self.pref_subtabs)
+
+        # Tab 1: Server & Ingestion Sync
+        tab_server = QWidget()
+        tab_server_layout = QVBoxLayout(tab_server)
         
         # 1. Server Configuration
         server_group = QGroupBox("Speakr Server Endpoints")
         server_layout = QHBoxLayout(server_group)
-        
         self.server_combo = QComboBox(self)
         self._populate_server_combo()
         self.server_combo.currentIndexChanged.connect(self._server_selection_changed)
         server_layout.addWidget(self.server_combo, 3)
-        
         add_srv_btn = QPushButton("Add")
         add_srv_btn.clicked.connect(self._add_server)
         server_layout.addWidget(add_srv_btn, 1)
-        
         edit_srv_btn = QPushButton("Edit")
         edit_srv_btn.clicked.connect(self._edit_server)
         server_layout.addWidget(edit_srv_btn, 1)
-        
         del_srv_btn = QPushButton("Delete")
         del_srv_btn.clicked.connect(self._delete_server)
         server_layout.addWidget(del_srv_btn, 1)
-        
-        layout.addWidget(server_group)
-        
+        tab_server_layout.addWidget(server_group)
+
         # 2. Upload Preferences
         upload_group = QGroupBox("Upload Preference")
         upload_layout = QVBoxLayout(upload_group)
-        
         self.mode_api_radio = QRadioButton("Direct API Upload (transmits file directly via REST API)")
         self.mode_folder_radio = QRadioButton("NAS Folder Copy (saves file to NAS_Share, tagged asynchronously)")
-        
         if self.settings.upload_mode == "api":
             self.mode_api_radio.setChecked(True)
         else:
             self.mode_folder_radio.setChecked(True)
-            
         self.mode_api_radio.toggled.connect(self._upload_mode_changed)
         self.mode_folder_radio.toggled.connect(self._upload_mode_changed)
-        
         upload_layout.addWidget(self.mode_api_radio)
         upload_layout.addWidget(self.mode_folder_radio)
-        
-        # Folder browser
+
         folder_layout = QHBoxLayout()
         folder_layout.addWidget(QLabel("NAS Ingestion Path:"))
         self.nas_path_input = QLineEdit(self.settings.nas_folder_path)
         self.nas_path_input.setReadOnly(True)
         folder_layout.addWidget(self.nas_path_input)
-        
         self.browse_btn = QPushButton("Browse...")
         self.browse_btn.clicked.connect(self._browse_nas_folder)
         folder_layout.addWidget(self.browse_btn)
         upload_layout.addLayout(folder_layout)
-        layout.addWidget(upload_group)
+        tab_server_layout.addWidget(upload_group)
+        tab_server_layout.addStretch()
 
-        # 3. Local Storage & Retention Settings
+        self.pref_subtabs.addTab(tab_server, "Server & Ingestion")
+
+        # Tab 2: Audio Hardware & Auto-Record
+        tab_audio = QWidget()
+        tab_audio_layout = QVBoxLayout(tab_audio)
+
+        # Audio Devices
+        audio_group = QGroupBox("Audio Hardware Selection")
+        audio_layout = QFormLayout(audio_group)
+        self.mic_combo = QComboBox(self)
+        self.spk_combo = QComboBox(self)
+        audio_layout.addRow("Microphone Capture:", self.mic_combo)
+        audio_layout.addRow("Speakers (Loopback):", self.spk_combo)
+        refresh_dev_btn = QPushButton("Refresh Devices")
+        refresh_dev_btn.clicked.connect(self._refresh_audio_devices)
+        audio_layout.addRow("", refresh_dev_btn)
+        tab_audio_layout.addWidget(audio_group)
+
+        # Recording Audio Format
+        format_group = QGroupBox("Recording Audio Format")
+        format_layout = QFormLayout(format_group)
+        self.format_combo = QComboBox(self)
+        self.format_combo.addItem("MP4 (AAC Compressed - Recommended, ~5x smaller)", "mp4")
+        self.format_combo.addItem("WAV (Uncompressed PCM)", "wav")
+        current_fmt = self.settings.recording_format.lower()
+        if current_fmt == "wav":
+            self.format_combo.setCurrentIndex(1)
+        else:
+            self.format_combo.setCurrentIndex(0)
+        self.format_combo.currentIndexChanged.connect(self._recording_format_changed)
+        format_layout.addRow("Audio Encoding:", self.format_combo)
+        tab_audio_layout.addWidget(format_group)
+
+        # Local Storage & Retention
         storage_group = QGroupBox("Local Recording Storage & Retention")
         storage_layout = QFormLayout(storage_group)
-        
-        # Storage folder selection
         storage_folder_box = QHBoxLayout()
         self.storage_path_input = QLineEdit(self.settings.local_recordings_dir or str(self.settings.resolved_recordings_dir))
         self.storage_path_input.setReadOnly(True)
         storage_folder_box.addWidget(self.storage_path_input)
-        
         browse_storage_btn = QPushButton("Browse...")
         browse_storage_btn.clicked.connect(self._browse_local_storage_dir)
         storage_folder_box.addWidget(browse_storage_btn)
         storage_layout.addRow("Storage Folder:", storage_folder_box)
-        
-        # Retention dropdown
+
         self.retention_combo = QComboBox(self)
         self.retention_combo.addItem("7 Days", 7)
         self.retention_combo.addItem("14 Days", 14)
@@ -592,7 +619,6 @@ class MainWindow(QMainWindow):
         self.retention_combo.addItem("60 Days", 60)
         self.retention_combo.addItem("90 Days", 90)
         self.retention_combo.addItem("Keep Forever (0 Days)", 0)
-        
         current_ret = self.settings.retention_days
         idx = self.retention_combo.findData(current_ret)
         if idx >= 0:
@@ -601,14 +627,12 @@ class MainWindow(QMainWindow):
             self.retention_combo.setCurrentIndex(2)
         self.retention_combo.currentIndexChanged.connect(self._retention_changed)
         storage_layout.addRow("Retention Expiration:", self.retention_combo)
-        
-        # Cooldown dropdown
+
         self.cooldown_combo = QComboBox(self)
         self.cooldown_combo.addItem("30 Seconds", 30)
         self.cooldown_combo.addItem("60 Seconds (Default - 1 Min)", 60)
         self.cooldown_combo.addItem("120 Seconds (2 Min)", 120)
         self.cooldown_combo.addItem("Disabled (0s)", 0)
-        
         current_cd = self.settings.cooldown_seconds
         idx = self.cooldown_combo.findData(current_cd)
         if idx >= 0:
@@ -617,136 +641,170 @@ class MainWindow(QMainWindow):
             self.cooldown_combo.setCurrentIndex(1)
         self.cooldown_combo.currentIndexChanged.connect(self._cooldown_changed)
         storage_layout.addRow("Post-Stop Cooldown Delay:", self.cooldown_combo)
-        
-        layout.addWidget(storage_group)
-        
-        # 4. Recording Format Selection
-        format_group = QGroupBox("Recording Audio Format")
-        format_layout = QFormLayout(format_group)
-        
-        self.format_combo = QComboBox(self)
-        self.format_combo.addItem("MP4 (AAC Compressed - Recommended, ~5x smaller)", "mp4")
-        self.format_combo.addItem("WAV (Uncompressed PCM)", "wav")
-        
-        current_fmt = self.settings.recording_format.lower()
-        if current_fmt == "wav":
-            self.format_combo.setCurrentIndex(1)
-        else:
-            self.format_combo.setCurrentIndex(0)
-            
-        self.format_combo.currentIndexChanged.connect(self._recording_format_changed)
-        format_layout.addRow("Audio Encoding:", self.format_combo)
-        layout.addWidget(format_group)
+        tab_audio_layout.addWidget(storage_group)
 
-        # 5. Audio Device Selection
-        audio_group = QGroupBox("Audio Hardware Selection")
-        audio_layout = QFormLayout(audio_group)
-        
-        self.mic_combo = QComboBox(self)
-        self.spk_combo = QComboBox(self)
-        
-        audio_layout.addRow("Microphone Capture:", self.mic_combo)
-        audio_layout.addRow("Speakers (Loopback):", self.spk_combo)
-        
-        refresh_dev_btn = QPushButton("Refresh Devices")
-        refresh_dev_btn.clicked.connect(self._refresh_audio_devices)
-        audio_layout.addRow("", refresh_dev_btn)
-        
-        layout.addWidget(audio_group)
-        
-        # 6. Auto-Record Rules
+        # Auto-Record Processes
         rules_group = QGroupBox("Auto-Record Processes")
         rules_layout = QVBoxLayout(rules_group)
-        
         self.zoom_chk = QCheckBox("Record Zoom Meetings (CptHost.exe)")
         self.zoom_chk.setChecked(self.settings.zoom_auto_record)
         self.zoom_chk.toggled.connect(self._rules_changed)
         rules_layout.addWidget(self.zoom_chk)
-        
         self.teams_chk = QCheckBox("Record Microsoft Teams Calls (Teams.exe)")
         self.teams_chk.setChecked(self.settings.teams_auto_record)
         self.teams_chk.toggled.connect(self._rules_changed)
         rules_layout.addWidget(self.teams_chk)
-        
         self.citrix_chk = QCheckBox("Record Citrix Meetings (Audio-gated wfica / Workspace)")
         self.citrix_chk.setChecked(self.settings.citrix_auto_record)
         self.citrix_chk.toggled.connect(self._rules_changed)
         rules_layout.addWidget(self.citrix_chk)
-        
-        layout.addWidget(rules_group)
-        
-        # 7. Window & System Tray Behavior
+        tab_audio_layout.addWidget(rules_group)
+
+        # System Tray Behavior
         tray_group = QGroupBox("Window & System Tray Behavior")
         tray_layout = QVBoxLayout(tray_group)
-        
         self.min_to_tray_chk = QCheckBox("Minimize to System Tray (hide window when minimized)")
         self.min_to_tray_chk.setChecked(self.settings.minimize_to_tray)
         self.min_to_tray_chk.toggled.connect(self._tray_prefs_changed)
         tray_layout.addWidget(self.min_to_tray_chk)
-        
         self.close_to_tray_chk = QCheckBox("Close to System Tray (keep running in background when closed)")
         self.close_to_tray_chk.setChecked(self.settings.close_to_tray)
         self.close_to_tray_chk.toggled.connect(self._tray_prefs_changed)
         tray_layout.addWidget(self.close_to_tray_chk)
-        
-        layout.addWidget(tray_group)
+        tab_audio_layout.addWidget(tray_group)
 
-        # 8. Live Meeting Copilot & Speech Recognition (ASR)
-        copilot_group = QGroupBox("Live Meeting Copilot & ASR Configuration")
-        copilot_layout = QFormLayout(copilot_group)
+        self.pref_subtabs.addTab(tab_audio, "Audio Hardware & Rules")
 
-        # ASR Provider Dropdown
+        # Tab 3: Live Copilot & ASR
+        tab_copilot = QWidget()
+        tab_copilot_layout = QVBoxLayout(tab_copilot)
+
+        # Speech Recognition (ASR) Engine Group
+        asr_group = QGroupBox("Live Speech Recognition (ASR) Engine")
+        self.asr_form = QFormLayout(asr_group)
+
+        # Row 0: ASR Provider
         self.asr_provider_combo = QComboBox(self)
-        self.asr_provider_combo.addItem("Local CPU (faster-whisper int8 - Recommended)", "local")
+        self.asr_provider_combo.addItem("Local CPU (faster-whisper int8 - Zero Cloud)", "local")
         self.asr_provider_combo.addItem("Mac LAN Whisper-MLX (Apple Silicon Host)", "mac_lan")
         self.asr_provider_combo.addItem("Cloud: Groq (Whisper-Large-v3 Turbo ~200ms)", "groq")
         self.asr_provider_combo.addItem("Cloud: OpenAI (Whisper)", "openai")
-        
         asr_idx = self.asr_provider_combo.findData(self.settings.asr_provider)
         if asr_idx >= 0:
             self.asr_provider_combo.setCurrentIndex(asr_idx)
         self.asr_provider_combo.currentIndexChanged.connect(self._asr_settings_changed)
-        copilot_layout.addRow("Speech-to-Text (ASR) Engine:", self.asr_provider_combo)
+        self.asr_form.addRow("Speech-to-Text (ASR) Engine:", self.asr_provider_combo)
 
-        # Local Model Size
+        # Row 1: Local Model Size
         self.asr_model_combo = QComboBox(self)
         self.asr_model_combo.addItem("base.en (~140MB - Balanced)", "base.en")
         self.asr_model_combo.addItem("tiny.en (~75MB - Ultra Fast)", "tiny.en")
         self.asr_model_combo.addItem("small.en (~460MB - High Accuracy)", "small.en")
-        
         model_idx = self.asr_model_combo.findData(self.settings.asr_model_size)
         if model_idx >= 0:
             self.asr_model_combo.setCurrentIndex(model_idx)
         self.asr_model_combo.currentIndexChanged.connect(self._asr_settings_changed)
-        copilot_layout.addRow("Local Whisper Model:", self.asr_model_combo)
+        self.asr_form.addRow("Local Whisper Model:", self.asr_model_combo)
 
-        # Mac MLX URL
+        # Row 2: Local CPU Threads
+        self.asr_threads_spin = QSpinBox(self)
+        self.asr_threads_spin.setRange(1, 16)
+        self.asr_threads_spin.setValue(self.settings.asr_cpu_threads)
+        self.asr_threads_spin.valueChanged.connect(self._asr_settings_changed)
+        self.asr_form.addRow("CPU Threads:", self.asr_threads_spin)
+
+        # Row 3: Mac MLX URL
         self.mac_mlx_input = QLineEdit(self.settings.mac_mlx_url)
+        self.mac_mlx_input.setPlaceholderText("http://192.168.0.88:9000")
         self.mac_mlx_input.textChanged.connect(self._asr_settings_changed)
-        copilot_layout.addRow("Mac MLX URL:", self.mac_mlx_input)
+        self.asr_form.addRow("Mac MLX URL:", self.mac_mlx_input)
 
-        # OpenRouter API Key for Copilot
-        self.openrouter_key_input = QLineEdit(self.settings.openrouter_api_key)
-        self.openrouter_key_input.setEchoMode(QLineEdit.Password)
-        self.openrouter_key_input.setPlaceholderText("sk-or-v1-...")
-        self.openrouter_key_input.textChanged.connect(self._asr_settings_changed)
-        copilot_layout.addRow("OpenRouter API Key (Copilot Agent):", self.openrouter_key_input)
-
-        # Groq API Key
+        # Row 4: Groq API Key
         self.groq_key_input = QLineEdit(self.settings.groq_api_key)
         self.groq_key_input.setEchoMode(QLineEdit.Password)
         self.groq_key_input.setPlaceholderText("gsk_...")
         self.groq_key_input.textChanged.connect(self._asr_settings_changed)
-        copilot_layout.addRow("Groq API Key (Cloud ASR):", self.groq_key_input)
+        self.asr_form.addRow("Groq API Key:", self.groq_key_input)
 
-        # Air-Gap / Privacy Mode Checkbox
-        self.privacy_mode_chk = QCheckBox("Air-Gap / Privacy Mode (Forces Local CPU ASR & Local/Offline LLM)")
+        # Row 5: OpenAI API Key
+        self.openai_key_input = QLineEdit(self.settings.openai_api_key)
+        self.openai_key_input.setEchoMode(QLineEdit.Password)
+        self.openai_key_input.setPlaceholderText("sk-...")
+        self.openai_key_input.textChanged.connect(self._asr_settings_changed)
+        self.asr_form.addRow("OpenAI API Key:", self.openai_key_input)
+
+        tab_copilot_layout.addWidget(asr_group)
+
+        # Live Copilot Reasoning Engine Group
+        llm_group = QGroupBox("Live Copilot Reasoning & Synthesis")
+        self.llm_form = QFormLayout(llm_group)
+
+        # Row 0: LLM Provider
+        self.llm_provider_combo = QComboBox(self)
+        self.llm_provider_combo.addItem("Offline Extractive (Zero Config / Free / Private)", "offline")
+        self.llm_provider_combo.addItem("OpenRouter Cloud (GPT-4o-mini, Claude, etc.)", "openrouter")
+        self.llm_provider_combo.addItem("Google Gemini Cloud (Flash 2.0)", "gemini")
+        self.llm_provider_combo.addItem("Local Ollama (via HTTP)", "ollama")
+        llm_idx = self.llm_provider_combo.findData(self.settings.llm_provider)
+        if llm_idx >= 0:
+            self.llm_provider_combo.setCurrentIndex(llm_idx)
+        self.llm_provider_combo.currentIndexChanged.connect(self._asr_settings_changed)
+        self.llm_form.addRow("Reasoning Engine:", self.llm_provider_combo)
+
+        # Row 1: OpenRouter Key
+        self.openrouter_key_input = QLineEdit(self.settings.openrouter_api_key)
+        self.openrouter_key_input.setEchoMode(QLineEdit.Password)
+        self.openrouter_key_input.setPlaceholderText("sk-or-v1-...")
+        self.openrouter_key_input.textChanged.connect(self._asr_settings_changed)
+        self.llm_form.addRow("OpenRouter Key:", self.openrouter_key_input)
+
+        # Row 2: Gemini Key
+        self.gemini_key_input = QLineEdit(self.settings.gemini_api_key)
+        self.gemini_key_input.setEchoMode(QLineEdit.Password)
+        self.gemini_key_input.setPlaceholderText("AIzaSy...")
+        self.gemini_key_input.textChanged.connect(self._asr_settings_changed)
+        self.llm_form.addRow("Gemini API Key:", self.gemini_key_input)
+
+        # Row 3: Ollama Endpoint
+        self.ollama_endpoint_input = QLineEdit(self.settings.ollama_endpoint)
+        self.ollama_endpoint_input.setPlaceholderText("http://localhost:11434/api/generate")
+        self.ollama_endpoint_input.textChanged.connect(self._asr_settings_changed)
+        self.llm_form.addRow("Ollama Endpoint:", self.ollama_endpoint_input)
+
+        # Row 4: LLM Model Name
+        self.llm_model_input = QLineEdit(self.settings.llm_model)
+        self.llm_model_input.setPlaceholderText("openai/gpt-4o-mini or llama3.2")
+        self.llm_model_input.textChanged.connect(self._asr_settings_changed)
+        self.llm_form.addRow("Model Name:", self.llm_model_input)
+
+        # Row 5: Cadence
+        self.cadence_combo = QComboBox(self)
+        self.cadence_combo.addItem("20 Seconds", 20)
+        self.cadence_combo.addItem("35 Seconds (Default)", 35)
+        self.cadence_combo.addItem("45 Seconds", 45)
+        self.cadence_combo.addItem("60 Seconds", 60)
+        c_idx = self.cadence_combo.findData(self.settings.copilot_cadence_seconds)
+        if c_idx >= 0:
+            self.cadence_combo.setCurrentIndex(c_idx)
+        else:
+            self.cadence_combo.setCurrentIndex(1)
+        self.cadence_combo.currentIndexChanged.connect(self._asr_settings_changed)
+        self.llm_form.addRow("Analysis Cadence:", self.cadence_combo)
+
+        # Row 6: Air-Gap / Privacy Mode
+        self.privacy_mode_chk = QCheckBox("Air-Gap / Privacy Mode (Blocks cloud APIs, forces local ASR & Offline/Ollama)")
         self.privacy_mode_chk.setChecked(self.settings.privacy_mode)
         self.privacy_mode_chk.toggled.connect(self._asr_settings_changed)
-        copilot_layout.addRow("", self.privacy_mode_chk)
+        self.llm_form.addRow("", self.privacy_mode_chk)
 
-        layout.addWidget(copilot_group)
-        
+        tab_copilot_layout.addWidget(llm_group)
+        tab_copilot_layout.addStretch()
+
+        self.pref_subtabs.addTab(tab_copilot, "Live Copilot & ASR")
+
+        # Initial dynamic visibility adjustment
+        self._update_dynamic_copilot_settings_visibility()
+
         # Devices event bindings
         self.mic_combo.currentIndexChanged.connect(self._audio_devices_changed)
         self.spk_combo.currentIndexChanged.connect(self._audio_devices_changed)
@@ -1250,12 +1308,49 @@ class MainWindow(QMainWindow):
             if self.vad_segmenter:
                 self.vad_segmenter.set_meeting_mode(mode)
             if self.hud:
-                self.hud.mode_badge.setText(mode.capitalize())
+                self.hud.update_status(
+                    recording=self.recorder.is_recording,
+                    paused=self.recorder.is_paused,
+                    meeting_mode=self.settings.meeting_mode,
+                    asr_name_or_key=self.settings.asr_provider
+                )
             self._log(f"Meeting mode set to: {mode.capitalize()}")
 
     def _copilot_toggle_changed(self, checked: bool) -> None:
         self.settings.copilot_enabled = checked
         self._log(f"Live Copilot HUD enabled: {checked}")
+
+    def _update_dynamic_copilot_settings_visibility(self) -> None:
+        """Dynamically shows only fields relevant to selected ASR and LLM engines."""
+        if not hasattr(self, "asr_form") or not hasattr(self, "llm_form"):
+            return
+
+        asr = self.asr_provider_combo.currentData()
+        is_local = (asr == "local")
+        is_mac = (asr == "mac_lan")
+        is_groq = (asr == "groq")
+        is_openai = (asr == "openai")
+
+        # ASR rows:
+        # 0: provider, 1: local model, 2: cpu threads, 3: mac mlx, 4: groq key, 5: openai key
+        self.asr_form.setRowVisible(1, is_local)
+        self.asr_form.setRowVisible(2, is_local)
+        self.asr_form.setRowVisible(3, is_mac)
+        self.asr_form.setRowVisible(4, is_groq)
+        self.asr_form.setRowVisible(5, is_openai)
+
+        # LLM rows:
+        # 0: provider, 1: openrouter key, 2: gemini key, 3: ollama endpoint, 4: model name, 5: cadence, 6: privacy
+        llm = self.llm_provider_combo.currentData()
+        is_offline = (llm == "offline")
+        is_openrouter = (llm == "openrouter")
+        is_gemini = (llm == "gemini")
+        is_ollama = (llm == "ollama")
+
+        self.llm_form.setRowVisible(1, is_openrouter)
+        self.llm_form.setRowVisible(2, is_gemini)
+        self.llm_form.setRowVisible(3, is_ollama)
+        self.llm_form.setRowVisible(4, not is_offline)
 
     def _asr_settings_changed(self) -> None:
         provider = self.asr_provider_combo.currentData()
@@ -1264,10 +1359,24 @@ class MainWindow(QMainWindow):
         model_size = self.asr_model_combo.currentData()
         if model_size:
             self.settings.asr_model_size = model_size
+        self.settings.asr_cpu_threads = self.asr_threads_spin.value()
         self.settings.mac_mlx_url = self.mac_mlx_input.text().strip()
-        self.settings.openrouter_api_key = self.openrouter_key_input.text().strip()
         self.settings.groq_api_key = self.groq_key_input.text().strip()
+        self.settings.openai_api_key = self.openai_key_input.text().strip()
+
+        llm_provider = self.llm_provider_combo.currentData()
+        if llm_provider:
+            self.settings.llm_provider = llm_provider
+        self.settings.openrouter_api_key = self.openrouter_key_input.text().strip()
+        self.settings.gemini_api_key = self.gemini_key_input.text().strip()
+        self.settings.ollama_endpoint = self.ollama_endpoint_input.text().strip()
+        self.settings.llm_model = self.llm_model_input.text().strip()
+        cadence = self.cadence_combo.currentData()
+        if cadence:
+            self.settings.copilot_cadence_seconds = int(cadence)
         self.settings.privacy_mode = self.privacy_mode_chk.isChecked()
+
+        self._update_dynamic_copilot_settings_visibility()
 
         if self.asr_manager:
             self.asr_manager.configure_provider(
@@ -1275,8 +1384,33 @@ class MainWindow(QMainWindow):
                 {
                     "model_size": self.settings.asr_model_size,
                     "mac_mlx_url": self.settings.mac_mlx_url,
-                    "groq_api_key": self.settings.groq_api_key
+                    "groq_api_key": self.settings.groq_api_key,
+                    "openai_api_key": self.settings.openai_api_key,
+                    "cpu_threads": self.settings.asr_cpu_threads
                 }
+            )
+
+        if self.copilot_agent:
+            api_key = ""
+            if self.settings.llm_provider == "openrouter":
+                api_key = self.settings.openrouter_api_key
+            elif self.settings.llm_provider == "gemini":
+                api_key = self.settings.gemini_api_key
+
+            self.copilot_agent.configure(
+                provider=self.settings.llm_provider,
+                api_key=api_key,
+                model_name=self.settings.llm_model,
+                custom_endpoint=self.settings.ollama_endpoint if self.settings.llm_provider == "ollama" else None,
+                privacy_mode=self.settings.privacy_mode
+            )
+
+        if self.hud:
+            self.hud.update_status(
+                recording=self.recorder.is_recording,
+                paused=self.recorder.is_paused,
+                meeting_mode=self.settings.meeting_mode,
+                asr_name_or_key=self.settings.asr_provider
             )
         self._log("Copilot & ASR settings updated.")
 
@@ -1299,7 +1433,9 @@ class MainWindow(QMainWindow):
                 {
                     "model_size": self.settings.asr_model_size,
                     "mac_mlx_url": self.settings.mac_mlx_url,
-                    "groq_api_key": self.settings.groq_api_key
+                    "groq_api_key": self.settings.groq_api_key,
+                    "openai_api_key": self.settings.openai_api_key,
+                    "cpu_threads": self.settings.asr_cpu_threads
                 }
             )
 
@@ -1317,7 +1453,52 @@ class MainWindow(QMainWindow):
             )
 
         if self.hud is None:
-            self.hud = FloatingCopilotHUD(self.copilot_memory, self.copilot_agent)
+            self.hud = FloatingCopilotHUD(
+                self.copilot_memory, 
+                self.copilot_agent,
+                initial_opacity=self.settings.hud_opacity
+            )
+            self.hud.meeting_mode_changed.connect(self._on_hud_meeting_mode_changed)
+            self.hud.asr_provider_changed.connect(self._on_hud_asr_provider_changed)
+            self.hud.opacity_changed.connect(self._on_hud_opacity_changed)
+
+    def _on_hud_meeting_mode_changed(self, mode: str) -> None:
+        """Handle meeting mode switch initiated directly from HUD header badge."""
+        self.settings.meeting_mode = mode
+        if self.vad_segmenter:
+            self.vad_segmenter.set_meeting_mode(mode)
+        self.meeting_mode_combo.blockSignals(True)
+        idx = self.meeting_mode_combo.findData(mode)
+        if idx >= 0:
+            self.meeting_mode_combo.setCurrentIndex(idx)
+        self.meeting_mode_combo.blockSignals(False)
+        self._log(f"[HUD] Switched meeting mode to: {mode.capitalize()}")
+
+    def _on_hud_asr_provider_changed(self, provider: str) -> None:
+        """Handle ASR engine switch initiated directly from HUD header badge."""
+        self.settings.asr_provider = provider
+        self.asr_provider_combo.blockSignals(True)
+        idx = self.asr_provider_combo.findData(provider)
+        if idx >= 0:
+            self.asr_provider_combo.setCurrentIndex(idx)
+        self.asr_provider_combo.blockSignals(False)
+        self._update_dynamic_copilot_settings_visibility()
+        if self.asr_manager:
+            self.asr_manager.configure_provider(
+                self.settings.asr_provider,
+                {
+                    "model_size": self.settings.asr_model_size,
+                    "mac_mlx_url": self.settings.mac_mlx_url,
+                    "groq_api_key": self.settings.groq_api_key,
+                    "openai_api_key": self.settings.openai_api_key,
+                    "cpu_threads": self.settings.asr_cpu_threads
+                }
+            )
+        self._log(f"[HUD] Switched ASR engine to: {provider}")
+
+    def _on_hud_opacity_changed(self, opacity: float) -> None:
+        """Handle HUD opacity slider change."""
+        self.settings.hud_opacity = opacity
 
     def _start_copilot_session(self) -> None:
         """Starts real-time transcription tap and Copilot agent."""
@@ -1332,11 +1513,17 @@ class MainWindow(QMainWindow):
         active_tags = self.tag_selector.selected_tag_names()
         tag_name = active_tags[0] if active_tags else None
         
-        api_key = self.settings.openrouter_api_key or self.settings.gemini_api_key
+        api_key = ""
+        if self.settings.llm_provider == "openrouter":
+            api_key = self.settings.openrouter_api_key
+        elif self.settings.llm_provider == "gemini":
+            api_key = self.settings.gemini_api_key
+
         self.copilot_agent.configure(
             provider=self.settings.llm_provider,
             api_key=api_key,
             model_name=self.settings.llm_model,
+            custom_endpoint=self.settings.ollama_endpoint if self.settings.llm_provider == "ollama" else None,
             privacy_mode=self.settings.privacy_mode,
             active_tag=tag_name
         )
@@ -1344,10 +1531,14 @@ class MainWindow(QMainWindow):
         self.recorder.audio_tap_callback = self.vad_segmenter.push_audio
         self.copilot_agent.start()
 
-        asr_name = self.asr_manager.active_provider.name if self.asr_manager else "Local"
-        self.hud.update_status(recording=True, paused=False, meeting_mode=self.settings.meeting_mode, asr_name=asr_name)
+        self.hud.update_status(
+            recording=True, 
+            paused=False, 
+            meeting_mode=self.settings.meeting_mode, 
+            asr_name_or_key=self.settings.asr_provider
+        )
         self.hud.show()
-        self._log(f"[Copilot] Live session started (Tag: {tag_name or 'Default'})")
+        self._log(f"[Copilot] Live session started (Mode: {self.settings.meeting_mode}, ASR: {self.settings.asr_provider}, LLM: {self.settings.llm_provider})")
 
     def _stop_copilot_session(self) -> None:
         """Stops copilot agent, flushes notes to Markdown, and unhooks tap."""
@@ -1357,8 +1548,12 @@ class MainWindow(QMainWindow):
             self.copilot_agent.stop()
 
         if self.hud:
-            asr_name = self.asr_manager.active_provider.name if self.asr_manager else "Local"
-            self.hud.update_status(recording=False, paused=False, meeting_mode=self.settings.meeting_mode, asr_name=asr_name)
+            self.hud.update_status(
+                recording=False, 
+                paused=False, 
+                meeting_mode=self.settings.meeting_mode, 
+                asr_name_or_key=self.settings.asr_provider
+            )
 
         if self.copilot_memory and (self.copilot_memory.live_notes or self.copilot_memory.suggested_questions):
             notes_md = self.copilot_memory.get_scratchpad_markdown()

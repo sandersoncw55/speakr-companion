@@ -386,7 +386,7 @@ class Settings:
 
     @property
     def llm_provider(self) -> str:
-        return self.data.get("llm_provider", "openrouter")
+        return self.data.get("llm_provider", "offline")
 
     @llm_provider.setter
     def llm_provider(self, val: str) -> None:
@@ -400,6 +400,15 @@ class Settings:
     @llm_model.setter
     def llm_model(self, val: str) -> None:
         self.data["llm_model"] = val
+        self.save()
+
+    @property
+    def ollama_endpoint(self) -> str:
+        return self.data.get("ollama_endpoint", "http://localhost:11434/api/generate")
+
+    @ollama_endpoint.setter
+    def ollama_endpoint(self, val: str) -> None:
+        self.data["ollama_endpoint"] = val
         self.save()
 
     @property
@@ -427,6 +436,15 @@ class Settings:
     @hud_opacity.setter
     def hud_opacity(self, val: float) -> None:
         self.data["hud_opacity"] = val
+        self.save()
+
+    @property
+    def hud_pinned(self) -> bool:
+        return bool(self.data.get("hud_pinned", True))
+
+    @hud_pinned.setter
+    def hud_pinned(self, val: bool) -> None:
+        self.data["hud_pinned"] = val
         self.save()
 
     @property
