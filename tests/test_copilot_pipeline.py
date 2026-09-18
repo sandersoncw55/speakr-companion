@@ -488,6 +488,52 @@ def test_notes_upload_and_summarization_linkage():
 
     print("[OK] Notes Upload and Summarization Linkage passed.")
 
+def test_hud_toggle_visibility_button():
+    print("Testing Open/Hide HUD Visibility Toggle Button...")
+    from PySide6.QtWidgets import QApplication
+    from core.config import Settings
+    from core.recorder import AudioRecorder
+    from core.uploader import AudioUploader
+    from core.storage import RecordingsManager
+    from gui.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    s = Settings()
+    rec = AudioRecorder()
+    stor = RecordingsManager(s)
+    up = AudioUploader(s, stor)
+    w = MainWindow(s, rec, up, stor)
+
+    try:
+        # Initial state: HUD not opened yet, button says Open HUD
+        assert "Open HUD" in w.open_hud_btn.text()
+        assert w.hud is None or not w.hud.isVisible()
+
+        # 1. Click / trigger toggle: should open HUD and button text becomes Hide HUD
+        w._toggle_copilot_hud()
+        assert w.hud is not None
+        assert w.hud.isVisible() is True
+        assert "Hide HUD" in w.open_hud_btn.text()
+
+        # 2. Click / trigger toggle again: should hide HUD and button text becomes Open HUD
+        w._toggle_copilot_hud()
+        assert w.hud.isVisible() is False
+        assert "Open HUD" in w.open_hud_btn.text()
+
+        # 3. Direct show / hide on HUD: button updates reactively
+        w.hud.show()
+        assert "Hide HUD" in w.open_hud_btn.text()
+
+        w.hud.hide()
+        assert "Open HUD" in w.open_hud_btn.text()
+    finally:
+        if w.hud:
+            w.hud.close()
+        rec.terminate()
+        w.close()
+
+    print("[OK] Open/Hide HUD Visibility Toggle Button passed.")
+
 if __name__ == "__main__":
     test_memory_and_scratchpad()
     test_prompts_and_tag_personas()
@@ -501,5 +547,6 @@ if __name__ == "__main__":
     test_lm_studio_configuration()
     test_recordings_notes_linking_and_viewer()
     test_notes_upload_and_summarization_linkage()
+    test_hud_toggle_visibility_button()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
 

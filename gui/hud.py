@@ -124,6 +124,7 @@ class FloatingCopilotHUD(QWidget):
     meeting_mode_changed = Signal(str)
     asr_provider_changed = Signal(str)
     opacity_changed = Signal(float)
+    visibility_changed = Signal(bool)
 
     def __init__(self, memory: CopilotMemory, copilot_agent, initial_opacity: float = 0.92, parent=None):
         super().__init__(parent)
@@ -775,3 +776,16 @@ class FloatingCopilotHUD(QWidget):
         if asr_idx >= 0:
             self.asr_combo.setCurrentIndex(asr_idx)
         self.asr_combo.blockSignals(False)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.visibility_changed.emit(True)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.visibility_changed.emit(False)
+
+    def closeEvent(self, event):
+        self.hide()
+        event.accept()
+

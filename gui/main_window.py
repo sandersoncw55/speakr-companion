@@ -341,7 +341,7 @@ class MainWindow(QMainWindow):
 
         self.open_hud_btn = QPushButton("💡 Open HUD")
         self.open_hud_btn.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;")
-        self.open_hud_btn.clicked.connect(self._open_copilot_hud)
+        self.open_hud_btn.clicked.connect(self._toggle_copilot_hud)
         copilot_bar.addWidget(self.open_hud_btn)
 
         layout.addLayout(copilot_bar)
@@ -1601,13 +1601,29 @@ class MainWindow(QMainWindow):
             )
         self._log("Copilot & ASR settings updated.")
 
-    def _open_copilot_hud(self) -> None:
-        """Opens or focuses the floating Copilot HUD."""
-        self._ensure_copilot_session()
-        if self.hud:
-            self.hud.show()
-            self.hud.raise_()
-            self.hud.activateWindow()
+    def _toggle_copilot_hud(self) -> None:
+        """Toggles the visibility of the floating Copilot HUD."""
+        if self.hud and self.hud.isVisible():
+            self.hud.hide()
+        else:
+            self._ensure_copilot_session()
+            if self.hud:
+                self.hud.show()
+                self.hud.raise_()
+                self.hud.activateWindow()
+
+    # Alias for backward compatibility
+    _open_copilot_hud = _toggle_copilot_hud
+
+    def _on_hud_visibility_changed(self, visible: bool) -> None:
+        """Updates button label and styling based on HUD visibility."""
+        if hasattr(self, "open_hud_btn"):
+            if visible:
+                self.open_hud_btn.setText("💡 Hide HUD")
+                self.open_hud_btn.setStyleSheet("background-color: #475569; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;")
+            else:
+                self.open_hud_btn.setText("💡 Open HUD")
+                self.open_hud_btn.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;")
 
     def _ensure_copilot_session(self) -> None:
         if self.copilot_memory is None:
@@ -1648,6 +1664,7 @@ class MainWindow(QMainWindow):
             self.hud.meeting_mode_changed.connect(self._on_hud_meeting_mode_changed)
             self.hud.asr_provider_changed.connect(self._on_hud_asr_provider_changed)
             self.hud.opacity_changed.connect(self._on_hud_opacity_changed)
+            self.hud.visibility_changed.connect(self._on_hud_visibility_changed)
 
     def _on_hud_meeting_mode_changed(self, mode: str) -> None:
         """Handle meeting mode switch initiated directly from HUD header badge."""
