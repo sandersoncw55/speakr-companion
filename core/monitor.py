@@ -236,7 +236,8 @@ class ProcessMonitor:
                     self.recorder.start_recording(
                         output_path=output_path,
                         mic_name=self.settings.selected_mic,
-                        speaker_name=self.settings.selected_speaker
+                        speaker_name=self.settings.selected_speaker,
+                        meeting_mode=self.settings.meeting_mode
                     )
                     if self.start_callback:
                         try:

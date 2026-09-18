@@ -160,6 +160,18 @@ class TagSelector(QWidget):
                         selected_ids.append(int(tag_id))
         return selected_ids
 
+    def selected_tag_names(self) -> List[str]:
+        """Returns the list of currently selected tag names."""
+        names = []
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            widget = self.list_widget.itemWidget(item)
+            if widget:
+                checkbox = widget.findChild(QCheckBox)
+                if checkbox and checkbox.isChecked():
+                    names.append(checkbox.text().strip())
+        return names
+
     def clear_selection(self) -> None:
         """Unchecks all tags."""
         for i in range(self.list_widget.count()):

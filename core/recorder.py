@@ -35,6 +35,10 @@ class AudioRecorder:
         # Callbacks for live level meters: callback(mic_db, speaker_db)
         self.level_callback: Optional[Callable[[float, float], None]] = None
         
+        # Real-time audio tap callback for live Copilot: callback(channel, pcm_bytes)
+        self.audio_tap_callback: Optional[Callable[[str, bytes], None]] = None
+        self.meeting_mode: str = "virtual"  # "virtual", "in_person", "hybrid"
+        
         self.current_mic_db = -96.0
         self.current_speaker_db = -96.0
         
@@ -174,11 +178,12 @@ class AudioRecorder:
         else:
             return p.get_default_input_device_info()["index"]
 
-    def start_recording(self, output_path: str, mic_name: str = "Default", speaker_name: str = "Default") -> None:
+    def start_recording(self, output_path: str, mic_name: str = "Default", speaker_name: str = "Default", meeting_mode: str = "virtual") -> None:
         """Starts recording threads."""
         if self.is_recording:
             return
 
+        self.meeting_mode = meeting_mode
         self.output_file_path = output_path
         self.recording_start_time = time.time()
         self.pause_start_time = 0.0
@@ -209,20 +214,25 @@ class AudioRecorder:
 
             # Resolve indices
             mic_idx = self._find_device_index(mic_name, loopback=False)
-            loopback_idx = self._find_device_index(speaker_name, loopback=True)
+            loopback_idx = self._find_device_index(speaker_name, loopback=True) if self.meeting_mode != "in_person" else None
 
             self.is_recording = True
             self.is_paused = False
 
             # Spawn threads
             self.mic_thread = threading.Thread(target=self._record_mic, args=(mic_idx,), daemon=True)
-            self.loopback_thread = threading.Thread(target=self._record_loopback, args=(loopback_idx,), daemon=True)
-            self.mix_thread = threading.Thread(target=self._mix_and_write, daemon=True)
-
             self.mic_thread.start()
-            self.loopback_thread.start()
+
+            if self.meeting_mode != "in_person" and loopback_idx is not None:
+                self.loopback_thread = threading.Thread(target=self._record_loopback, args=(loopback_idx,), daemon=True)
+                self.loopback_thread.start()
+            else:
+                self.loopback_thread = None
+                self.current_speaker_db = -96.0
+
+            self.mix_thread = threading.Thread(target=self._mix_and_write, daemon=True)
             self.mix_thread.start()
-            print(f"[Recorder] Recording started. Output: {output_path}")
+            print(f"[Recorder] Recording started (Mode: {self.meeting_mode}). Output: {output_path}")
         except Exception:
             self.is_recording = False
             self.is_paused = False
@@ -374,6 +384,13 @@ class AudioRecorder:
                 
                 with self.lock:
                     self.mic_samples.extend(samples)
+
+                if self.audio_tap_callback:
+                    ch = "room" if self.meeting_mode == "in_person" else "mic"
+                    try:
+                        self.audio_tap_callback(ch, data)
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"[Recorder] Mic read error: {e}")
                 break
@@ -442,6 +459,12 @@ class AudioRecorder:
                 
                 with self.lock:
                     self.loopback_samples.extend(resampled_samples)
+
+                if self.audio_tap_callback:
+                    try:
+                        self.audio_tap_callback("loopback", resampled_samples.tobytes())
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"[Recorder] Loopback read error: {e}")
                 break
@@ -464,7 +487,24 @@ class AudioRecorder:
             mic_len = len(self.mic_samples)
             spk_len = len(self.loopback_samples)
             
-            if mic_len > 0 and spk_len > 0:
+            if self.meeting_mode == "in_person":
+                if mic_len > 0:
+                    drain_len = min(mic_len, self.chunk_size)
+                    chunk = []
+                    with self.lock:
+                        for _ in range(drain_len):
+                            chunk.append(self.mic_samples.popleft())
+                    mixed = array.array("h", chunk)
+                    frame_bytes = mixed.tobytes()
+                    if self.wav_file:
+                        try:
+                            self.wav_file.writeframes(frame_bytes)
+                        except Exception as e:
+                            print(f"[Recorder] WAV write error: {e}")
+                else:
+                    threading.Event().wait(0.01)
+
+            elif mic_len > 0 and spk_len > 0:
                 mix_len = min(mic_len, spk_len)
                 mic_chunk = []
                 spk_chunk = []

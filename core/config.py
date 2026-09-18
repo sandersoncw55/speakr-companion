@@ -55,7 +55,25 @@ class Settings:
         "retention_days": 30,        # 30 days retention policy (0 = keep forever)
         "cooldown_seconds": 60,      # 60s cooldown delay after recording stops
         "minimize_to_tray": True,    # Hide window to tray on minimize
-        "close_to_tray": True        # Hide window to tray on close button
+        "close_to_tray": True,       # Hide window to tray on close button
+        
+        # Copilot & Live Meeting Intelligence
+        "copilot_enabled": True,
+        "meeting_mode": "virtual",   # 'virtual', 'in_person', 'hybrid'
+        "asr_provider": "local",     # 'local', 'mac_lan', 'groq', 'openai'
+        "asr_model_size": "base.en",
+        "asr_cpu_threads": 4,
+        "mac_mlx_url": "http://192.168.0.88:9000",
+        "groq_api_key": "",
+        "openai_api_key": "",
+        "gemini_api_key": "",
+        "openrouter_api_key": "",
+        "llm_provider": "openrouter", # 'openrouter', 'gemini', 'ollama'
+        "llm_model": "openai/gpt-4o-mini",
+        "privacy_mode": False,       # Locks ASR to Local CPU and LLM to Ollama/offline
+        "copilot_cadence_seconds": 35,
+        "hud_opacity": 0.92,
+        "custom_quick_prompts": []
     }
 
     def __init__(self):
@@ -273,5 +291,150 @@ class Settings:
     @close_to_tray.setter
     def close_to_tray(self, val: bool) -> None:
         self.data["close_to_tray"] = val
+        self.save()
+
+    # --- Copilot Settings Properties ---
+    @property
+    def copilot_enabled(self) -> bool:
+        return bool(self.data.get("copilot_enabled", True))
+
+    @copilot_enabled.setter
+    def copilot_enabled(self, val: bool) -> None:
+        self.data["copilot_enabled"] = val
+        self.save()
+
+    @property
+    def meeting_mode(self) -> str:
+        return self.data.get("meeting_mode", "virtual")
+
+    @meeting_mode.setter
+    def meeting_mode(self, val: str) -> None:
+        self.data["meeting_mode"] = val
+        self.save()
+
+    @property
+    def asr_provider(self) -> str:
+        return self.data.get("asr_provider", "local")
+
+    @asr_provider.setter
+    def asr_provider(self, val: str) -> None:
+        self.data["asr_provider"] = val
+        self.save()
+
+    @property
+    def asr_model_size(self) -> str:
+        return self.data.get("asr_model_size", "base.en")
+
+    @asr_model_size.setter
+    def asr_model_size(self, val: str) -> None:
+        self.data["asr_model_size"] = val
+        self.save()
+
+    @property
+    def asr_cpu_threads(self) -> int:
+        return int(self.data.get("asr_cpu_threads", 4))
+
+    @asr_cpu_threads.setter
+    def asr_cpu_threads(self, val: int) -> None:
+        self.data["asr_cpu_threads"] = val
+        self.save()
+
+    @property
+    def mac_mlx_url(self) -> str:
+        return self.data.get("mac_mlx_url", "http://192.168.0.88:9000")
+
+    @mac_mlx_url.setter
+    def mac_mlx_url(self, val: str) -> None:
+        self.data["mac_mlx_url"] = val
+        self.save()
+
+    @property
+    def groq_api_key(self) -> str:
+        return self.data.get("groq_api_key", "")
+
+    @groq_api_key.setter
+    def groq_api_key(self, val: str) -> None:
+        self.data["groq_api_key"] = val
+        self.save()
+
+    @property
+    def openai_api_key(self) -> str:
+        return self.data.get("openai_api_key", "")
+
+    @openai_api_key.setter
+    def openai_api_key(self, val: str) -> None:
+        self.data["openai_api_key"] = val
+        self.save()
+
+    @property
+    def gemini_api_key(self) -> str:
+        return self.data.get("gemini_api_key", "")
+
+    @gemini_api_key.setter
+    def gemini_api_key(self, val: str) -> None:
+        self.data["gemini_api_key"] = val
+        self.save()
+
+    @property
+    def openrouter_api_key(self) -> str:
+        return self.data.get("openrouter_api_key", "")
+
+    @openrouter_api_key.setter
+    def openrouter_api_key(self, val: str) -> None:
+        self.data["openrouter_api_key"] = val
+        self.save()
+
+    @property
+    def llm_provider(self) -> str:
+        return self.data.get("llm_provider", "openrouter")
+
+    @llm_provider.setter
+    def llm_provider(self, val: str) -> None:
+        self.data["llm_provider"] = val
+        self.save()
+
+    @property
+    def llm_model(self) -> str:
+        return self.data.get("llm_model", "openai/gpt-4o-mini")
+
+    @llm_model.setter
+    def llm_model(self, val: str) -> None:
+        self.data["llm_model"] = val
+        self.save()
+
+    @property
+    def privacy_mode(self) -> bool:
+        return bool(self.data.get("privacy_mode", False))
+
+    @privacy_mode.setter
+    def privacy_mode(self, val: bool) -> None:
+        self.data["privacy_mode"] = val
+        self.save()
+
+    @property
+    def copilot_cadence_seconds(self) -> int:
+        return int(self.data.get("copilot_cadence_seconds", 35))
+
+    @copilot_cadence_seconds.setter
+    def copilot_cadence_seconds(self, val: int) -> None:
+        self.data["copilot_cadence_seconds"] = val
+        self.save()
+
+    @property
+    def hud_opacity(self) -> float:
+        return float(self.data.get("hud_opacity", 0.92))
+
+    @hud_opacity.setter
+    def hud_opacity(self, val: float) -> None:
+        self.data["hud_opacity"] = val
+        self.save()
+
+    @property
+    def custom_quick_prompts(self) -> List[Dict[str, str]]:
+        return self.data.get("custom_quick_prompts", [])
+
+    @custom_quick_prompts.setter
+    def custom_quick_prompts(self, val: List[Dict[str, str]]) -> None:
+        self.data["custom_quick_prompts"] = val
         self.save()
 

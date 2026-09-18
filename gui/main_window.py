@@ -20,6 +20,11 @@ from core.client import SpeakrClient
 from core.uploader import AudioUploader
 from core.storage import RecordingsManager
 from gui.widgets import VolumeMeter, TagSelector
+from core.copilot.segmenter import VADSegmenter, AudioSegment
+from core.copilot.memory import CopilotMemory
+from core.copilot.agent import CopilotAgent
+from core.asr.manager import ASRManager
+from gui.hud import FloatingCopilotHUD
 
 class Signaler(QObject):
     """Bridge object to emit thread-safe signals for GUI updates."""
@@ -89,6 +94,13 @@ class MainWindow(QMainWindow):
         self.last_recording_path: Optional[str] = None
         self.tray_manager = None  # Injected from main.py if available
         self.current_recording_mode: str = "manual"
+        
+        # Live Copilot session state
+        self.hud: Optional[FloatingCopilotHUD] = None
+        self.copilot_memory: Optional[CopilotMemory] = None
+        self.copilot_agent: Optional[CopilotAgent] = None
+        self.vad_segmenter: Optional[VADSegmenter] = None
+        self.asr_manager: Optional[ASRManager] = None
         
         self.setWindowTitle("Speakr Windows Companion")
         self.setWindowIcon(get_app_icon())
@@ -203,6 +215,33 @@ class MainWindow(QMainWindow):
         ctrl_layout.addWidget(self.skip_cooldown_btn, 1)
         
         layout.addLayout(ctrl_layout)
+
+        # Meeting Mode & Live Copilot Bar
+        copilot_bar = QHBoxLayout()
+        copilot_bar.addWidget(QLabel("Meeting Mode:"))
+        self.meeting_mode_combo = QComboBox(self)
+        self.meeting_mode_combo.addItem("Virtual Call (Teams/Zoom/Citrix)", "virtual")
+        self.meeting_mode_combo.addItem("In-Person Room (Conference Mic)", "in_person")
+        self.meeting_mode_combo.addItem("Hybrid Room (Room Mic + Loopback)", "hybrid")
+        
+        current_mode = self.settings.meeting_mode
+        mode_idx = self.meeting_mode_combo.findData(current_mode)
+        if mode_idx >= 0:
+            self.meeting_mode_combo.setCurrentIndex(mode_idx)
+        self.meeting_mode_combo.currentIndexChanged.connect(self._meeting_mode_changed)
+        copilot_bar.addWidget(self.meeting_mode_combo, 2)
+
+        self.copilot_toggle_chk = QCheckBox("Enable Live Copilot HUD")
+        self.copilot_toggle_chk.setChecked(self.settings.copilot_enabled)
+        self.copilot_toggle_chk.toggled.connect(self._copilot_toggle_changed)
+        copilot_bar.addWidget(self.copilot_toggle_chk)
+
+        self.open_hud_btn = QPushButton("💡 Open HUD")
+        self.open_hud_btn.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;")
+        self.open_hud_btn.clicked.connect(self._open_copilot_hud)
+        copilot_bar.addWidget(self.open_hud_btn)
+
+        layout.addLayout(copilot_bar)
         
         # Level Meters
         meters_group = QGroupBox("Live Audio Input Levels")
@@ -651,6 +690,62 @@ class MainWindow(QMainWindow):
         tray_layout.addWidget(self.close_to_tray_chk)
         
         layout.addWidget(tray_group)
+
+        # 8. Live Meeting Copilot & Speech Recognition (ASR)
+        copilot_group = QGroupBox("Live Meeting Copilot & ASR Configuration")
+        copilot_layout = QFormLayout(copilot_group)
+
+        # ASR Provider Dropdown
+        self.asr_provider_combo = QComboBox(self)
+        self.asr_provider_combo.addItem("Local CPU (faster-whisper int8 - Recommended)", "local")
+        self.asr_provider_combo.addItem("Mac LAN Whisper-MLX (Apple Silicon Host)", "mac_lan")
+        self.asr_provider_combo.addItem("Cloud: Groq (Whisper-Large-v3 Turbo ~200ms)", "groq")
+        self.asr_provider_combo.addItem("Cloud: OpenAI (Whisper)", "openai")
+        
+        asr_idx = self.asr_provider_combo.findData(self.settings.asr_provider)
+        if asr_idx >= 0:
+            self.asr_provider_combo.setCurrentIndex(asr_idx)
+        self.asr_provider_combo.currentIndexChanged.connect(self._asr_settings_changed)
+        copilot_layout.addRow("Speech-to-Text (ASR) Engine:", self.asr_provider_combo)
+
+        # Local Model Size
+        self.asr_model_combo = QComboBox(self)
+        self.asr_model_combo.addItem("base.en (~140MB - Balanced)", "base.en")
+        self.asr_model_combo.addItem("tiny.en (~75MB - Ultra Fast)", "tiny.en")
+        self.asr_model_combo.addItem("small.en (~460MB - High Accuracy)", "small.en")
+        
+        model_idx = self.asr_model_combo.findData(self.settings.asr_model_size)
+        if model_idx >= 0:
+            self.asr_model_combo.setCurrentIndex(model_idx)
+        self.asr_model_combo.currentIndexChanged.connect(self._asr_settings_changed)
+        copilot_layout.addRow("Local Whisper Model:", self.asr_model_combo)
+
+        # Mac MLX URL
+        self.mac_mlx_input = QLineEdit(self.settings.mac_mlx_url)
+        self.mac_mlx_input.textChanged.connect(self._asr_settings_changed)
+        copilot_layout.addRow("Mac MLX URL:", self.mac_mlx_input)
+
+        # OpenRouter API Key for Copilot
+        self.openrouter_key_input = QLineEdit(self.settings.openrouter_api_key)
+        self.openrouter_key_input.setEchoMode(QLineEdit.Password)
+        self.openrouter_key_input.setPlaceholderText("sk-or-v1-...")
+        self.openrouter_key_input.textChanged.connect(self._asr_settings_changed)
+        copilot_layout.addRow("OpenRouter API Key (Copilot Agent):", self.openrouter_key_input)
+
+        # Groq API Key
+        self.groq_key_input = QLineEdit(self.settings.groq_api_key)
+        self.groq_key_input.setEchoMode(QLineEdit.Password)
+        self.groq_key_input.setPlaceholderText("gsk_...")
+        self.groq_key_input.textChanged.connect(self._asr_settings_changed)
+        copilot_layout.addRow("Groq API Key (Cloud ASR):", self.groq_key_input)
+
+        # Air-Gap / Privacy Mode Checkbox
+        self.privacy_mode_chk = QCheckBox("Air-Gap / Privacy Mode (Forces Local CPU ASR & Local/Offline LLM)")
+        self.privacy_mode_chk.setChecked(self.settings.privacy_mode)
+        self.privacy_mode_chk.toggled.connect(self._asr_settings_changed)
+        copilot_layout.addRow("", self.privacy_mode_chk)
+
+        layout.addWidget(copilot_group)
         
         # Devices event bindings
         self.mic_combo.currentIndexChanged.connect(self._audio_devices_changed)
@@ -870,8 +965,10 @@ class MainWindow(QMainWindow):
                 self.recorder.start_recording(
                     output_path=output_path,
                     mic_name=self.settings.selected_mic,
-                    speaker_name=self.settings.selected_speaker
+                    speaker_name=self.settings.selected_speaker,
+                    meeting_mode=self.settings.meeting_mode
                 )
+                self._start_copilot_session()
                 
                 self.status_label.setText("STATUS: RECORDING (MANUAL) • 00:00")
                 self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
@@ -910,6 +1007,7 @@ class MainWindow(QMainWindow):
                 duration = self.recorder.elapsed_seconds
                 selected_tags = self.tag_selector.selected_tag_ids()
                 
+                self._stop_copilot_session()
                 self.duration_timer.stop()
                 self.recorder.stop_recording()
                 
@@ -1104,6 +1202,7 @@ class MainWindow(QMainWindow):
         self.duration_timer.start(1000)
         if self.tray_manager:
             self.tray_manager.set_state("recording", "00:00")
+        self._start_copilot_session()
         self._log(f"[Monitor] Auto-recording started ({trigger.upper()})")
         self.statusBar().showMessage(f"Auto-recording started ({trigger.upper()}).")
 
@@ -1111,6 +1210,7 @@ class MainWindow(QMainWindow):
         self.signaler.auto_record_finish_signal.emit(file_path, tags)
 
     def _handle_auto_record_finished(self, file_path: str, tags: List[int]) -> None:
+        self._stop_copilot_session()
         self.duration_timer.stop()
         self.pause_btn.setEnabled(False)
         self._log(f"[Monitor] Auto-recording finished: {os.path.basename(file_path)}")
@@ -1142,6 +1242,157 @@ class MainWindow(QMainWindow):
         
         self.tag_selector.clear_selection()
 
+    # Copilot & Meeting Mode Handlers
+    def _meeting_mode_changed(self) -> None:
+        mode = self.meeting_mode_combo.currentData()
+        if mode:
+            self.settings.meeting_mode = mode
+            if self.vad_segmenter:
+                self.vad_segmenter.set_meeting_mode(mode)
+            if self.hud:
+                self.hud.mode_badge.setText(mode.capitalize())
+            self._log(f"Meeting mode set to: {mode.capitalize()}")
+
+    def _copilot_toggle_changed(self, checked: bool) -> None:
+        self.settings.copilot_enabled = checked
+        self._log(f"Live Copilot HUD enabled: {checked}")
+
+    def _asr_settings_changed(self) -> None:
+        provider = self.asr_provider_combo.currentData()
+        if provider:
+            self.settings.asr_provider = provider
+        model_size = self.asr_model_combo.currentData()
+        if model_size:
+            self.settings.asr_model_size = model_size
+        self.settings.mac_mlx_url = self.mac_mlx_input.text().strip()
+        self.settings.openrouter_api_key = self.openrouter_key_input.text().strip()
+        self.settings.groq_api_key = self.groq_key_input.text().strip()
+        self.settings.privacy_mode = self.privacy_mode_chk.isChecked()
+
+        if self.asr_manager:
+            self.asr_manager.configure_provider(
+                self.settings.asr_provider,
+                {
+                    "model_size": self.settings.asr_model_size,
+                    "mac_mlx_url": self.settings.mac_mlx_url,
+                    "groq_api_key": self.settings.groq_api_key
+                }
+            )
+        self._log("Copilot & ASR settings updated.")
+
+    def _open_copilot_hud(self) -> None:
+        """Opens or focuses the floating Copilot HUD."""
+        self._ensure_copilot_session()
+        if self.hud:
+            self.hud.show()
+            self.hud.raise_()
+            self.hud.activateWindow()
+
+    def _ensure_copilot_session(self) -> None:
+        if self.copilot_memory is None:
+            self.copilot_memory = CopilotMemory()
+        
+        if self.asr_manager is None:
+            self.asr_manager = ASRManager(on_transcription_callback=self._on_copilot_transcription)
+            self.asr_manager.configure_provider(
+                self.settings.asr_provider,
+                {
+                    "model_size": self.settings.asr_model_size,
+                    "mac_mlx_url": self.settings.mac_mlx_url,
+                    "groq_api_key": self.settings.groq_api_key
+                }
+            )
+
+        if self.copilot_agent is None:
+            self.copilot_agent = CopilotAgent(
+                memory=self.copilot_memory,
+                on_results_callback=self._on_copilot_agent_results,
+                cadence_seconds=self.settings.copilot_cadence_seconds
+            )
+
+        if self.vad_segmenter is None:
+            self.vad_segmenter = VADSegmenter(
+                on_segment_callback=self.asr_manager.enqueue_segment,
+                meeting_mode=self.settings.meeting_mode
+            )
+
+        if self.hud is None:
+            self.hud = FloatingCopilotHUD(self.copilot_memory, self.copilot_agent)
+
+    def _start_copilot_session(self) -> None:
+        """Starts real-time transcription tap and Copilot agent."""
+        if not self.settings.copilot_enabled:
+            return
+
+        self._ensure_copilot_session()
+        self.copilot_memory.clear()
+        self.vad_segmenter.reset()
+        self.vad_segmenter.set_meeting_mode(self.settings.meeting_mode)
+
+        active_tags = self.tag_selector.selected_tag_names()
+        tag_name = active_tags[0] if active_tags else None
+        
+        api_key = self.settings.openrouter_api_key or self.settings.gemini_api_key
+        self.copilot_agent.configure(
+            provider=self.settings.llm_provider,
+            api_key=api_key,
+            model_name=self.settings.llm_model,
+            privacy_mode=self.settings.privacy_mode,
+            active_tag=tag_name
+        )
+
+        self.recorder.audio_tap_callback = self.vad_segmenter.push_audio
+        self.copilot_agent.start()
+
+        asr_name = self.asr_manager.active_provider.name if self.asr_manager else "Local"
+        self.hud.update_status(recording=True, paused=False, meeting_mode=self.settings.meeting_mode, asr_name=asr_name)
+        self.hud.show()
+        self._log(f"[Copilot] Live session started (Tag: {tag_name or 'Default'})")
+
+    def _stop_copilot_session(self) -> None:
+        """Stops copilot agent, flushes notes to Markdown, and unhooks tap."""
+        self.recorder.audio_tap_callback = None
+
+        if self.copilot_agent:
+            self.copilot_agent.stop()
+
+        if self.hud:
+            asr_name = self.asr_manager.active_provider.name if self.asr_manager else "Local"
+            self.hud.update_status(recording=False, paused=False, meeting_mode=self.settings.meeting_mode, asr_name=asr_name)
+
+        if self.copilot_memory and (self.copilot_memory.live_notes or self.copilot_memory.suggested_questions):
+            notes_md = self.copilot_memory.get_scratchpad_markdown()
+            rec_dir = self.settings.resolved_recordings_dir
+            timestamp_str = time.strftime("%Y-%m-%d_%H%M%S")
+            notes_path = rec_dir / f"Meeting_Notes_{timestamp_str}.md"
+            try:
+                with open(notes_path, "w", encoding="utf-8") as f:
+                    f.write(f"# Meeting Live Notes ({timestamp_str})\n\n")
+                    f.write(f"**Meeting Mode:** {self.settings.meeting_mode.capitalize()}\n\n")
+                    f.write(notes_md)
+                self._log(f"[Copilot] Live notes saved to: {notes_path.name}")
+            except Exception as ex:
+                self._log(f"[Copilot] Error saving live notes: {ex}")
+
+    def _on_copilot_transcription(self, segment: AudioSegment, text: str) -> None:
+        if self.hud:
+            self.hud.signals.transcription_received.emit(
+                segment.channel,
+                text,
+                segment.timestamp,
+                segment.turn_id
+            )
+
+    def _on_copilot_agent_results(self, results: dict) -> None:
+        if self.hud:
+            if results.get("type") == "quick_action":
+                self.hud.signals.quick_action_received.emit(
+                    results.get("title", "Quick Action"),
+                    results.get("text", "")
+                )
+            else:
+                self.hud.signals.agent_results_received.emit(results)
+
     def changeEvent(self, event) -> None:
         if event.type() == QEvent.WindowStateChange:
             if self.isMinimized() and self.settings.minimize_to_tray:
@@ -1149,7 +1400,7 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(0, self.hide)
                 self._log("Application minimized to system tray.")
                 return
-        super().changeEvent(event)
+            super().changeEvent(event)
 
     def closeEvent(self, event) -> None:
         if self.settings.close_to_tray:
@@ -1161,5 +1412,11 @@ class MainWindow(QMainWindow):
             self.cooldown_timer.stop()
             self.monitor.stop()
             self.recorder.terminate()
+            if self.copilot_agent:
+                self.copilot_agent.stop()
+            if self.asr_manager:
+                self.asr_manager.shutdown()
+            if self.hud:
+                self.hud.close()
             event.accept()
             QApplication.quit()
