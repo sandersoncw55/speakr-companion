@@ -139,6 +139,15 @@ class RecordingsManager:
                     break
             self.save()
 
+    def get_recording(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Finds a recording record by file_path or filename."""
+        target_name = os.path.basename(file_path)
+        with self._lock:
+            for item in self._history:
+                if item.get("file_path") == file_path or item.get("filename") == target_name:
+                    return dict(item)
+            return None
+
     def get_recordings(self) -> List[Dict[str, Any]]:
         """Returns all history items, verifying file existence status."""
         with self._lock:

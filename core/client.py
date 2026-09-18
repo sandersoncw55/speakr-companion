@@ -1,4 +1,5 @@
 import os
+import json
 from typing import Dict, Any, List, Optional
 import httpx
 
@@ -39,9 +40,16 @@ class SpeakrClient:
             print(f"[SpeakrClient] Error listing tags: {e}")
             return []
 
-    def upload_recording(self, file_path: str, title: Optional[str] = None) -> Optional[str]:
+    def upload_recording(
+        self, 
+        file_path: str, 
+        title: Optional[str] = None,
+        notes: Optional[str] = None,
+        prompt_variables: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
         """
         Uploads an audio file via the POST /recordings/upload endpoint.
+        Optionally attaches initial markdown notes and prompt variables for AI summarization.
         Returns the recording ID if successful, else None.
         """
         url = f"{self.base_url}/recordings/upload"
@@ -53,6 +61,10 @@ class SpeakrClient:
                 data = {}
                 if title:
                     data["title"] = title
+                if notes:
+                    data["notes"] = notes
+                if prompt_variables:
+                    data["prompt_variables"] = json.dumps(prompt_variables) if isinstance(prompt_variables, dict) else str(prompt_variables)
 
                 with httpx.Client(timeout=120.0) as client:
                     resp = client.post(url, files=files, data=data, headers=self._get_headers())
@@ -65,6 +77,34 @@ class SpeakrClient:
         except Exception as e:
             print(f"[SpeakrClient] Upload failed: {e}")
             return None
+
+    def replace_recording_notes(self, recording_id: str, notes: str) -> bool:
+        """Updates or attaches markdown notes to an existing recording in Speakr."""
+        url = f"{self.base_url}/recordings/{recording_id}/notes"
+        payload = {"notes": notes}
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.put(url, json=payload, headers=self._get_headers())
+                resp.raise_for_status()
+                return True
+        except Exception as e:
+            print(f"[SpeakrClient] Error updating notes for recording {recording_id}: {e}")
+            return False
+
+    def trigger_summarization(self, recording_id: str, custom_prompt: Optional[str] = None) -> bool:
+        """Triggers AI summarization on the Speakr server for a recording."""
+        url = f"{self.base_url}/recordings/{recording_id}/summarize"
+        payload = {}
+        if custom_prompt:
+            payload["custom_prompt"] = custom_prompt
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.post(url, json=payload, headers=self._get_headers())
+                resp.raise_for_status()
+                return True
+        except Exception as e:
+            print(f"[SpeakrClient] Error triggering summarization for recording {recording_id}: {e}")
+            return False
 
     def add_recording_tags(self, recording_id: str, tag_ids: List[int]) -> bool:
         """Assign tags to a specific recording in Speakr."""

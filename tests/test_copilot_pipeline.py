@@ -3,6 +3,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import time
+from pathlib import Path
 import numpy as np
 from core.copilot.memory import CopilotMemory, SuggestedQuestion
 from core.copilot.prompts import get_periodic_prompt, DEFAULT_QUICK_PROMPTS
@@ -376,6 +377,117 @@ def test_recordings_notes_linking_and_viewer():
 
     print("[OK] Recordings Manager Notes Linking & NotesViewerDialog passed.")
 
+def test_notes_upload_and_summarization_linkage():
+    print("Testing Notes Upload and Summarization Linkage...")
+    import tempfile
+    from unittest.mock import MagicMock, patch
+    from core.client import SpeakrClient
+    from core.uploader import AudioUploader
+    from core.config import Settings
+    from core.storage import RecordingsManager
+
+    # 1. Test SpeakrClient endpoints with mocks
+    client = SpeakrClient("http://127.0.0.1:8899")
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+        f.write(b"fake mp4 audio data")
+        temp_audio = f.name
+
+    try:
+        # Mock client.post for upload_recording
+        with patch("httpx.Client.post") as mock_post:
+            mock_post.return_value = MagicMock(status_code=201, json=lambda: {"id": "rec_456"})
+            rec_id = client.upload_recording(
+                temp_audio, 
+                title="Test Call", 
+                notes="# Test Notes\n- [x] Item 1",
+                prompt_variables={"copilot_notes": "# Test Notes\n- [x] Item 1"}
+            )
+            assert rec_id == "rec_456"
+            # Verify data payload passed to httpx.Client.post
+            _, kwargs = mock_post.call_args
+            assert "data" in kwargs
+            assert kwargs["data"]["title"] == "Test Call"
+            assert kwargs["data"]["notes"] == "# Test Notes\n- [x] Item 1"
+            assert "copilot_notes" in kwargs["data"]["prompt_variables"]
+
+        # Mock client.put for replace_recording_notes
+        with patch("httpx.Client.put") as mock_put:
+            mock_put.return_value = MagicMock(status_code=200, json=lambda: {"notes": "updated"})
+            ok = client.replace_recording_notes("rec_456", "# Updated Notes")
+            assert ok is True
+            _, kwargs = mock_put.call_args
+            assert kwargs["json"] == {"notes": "# Updated Notes"}
+
+        # Mock client.post for trigger_summarization
+        with patch("httpx.Client.post") as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, json=lambda: {"status": "queued"})
+            ok = client.trigger_summarization("rec_456", custom_prompt="Focus on SAN items")
+            assert ok is True
+            _, kwargs = mock_post.call_args
+            assert kwargs["json"] == {"custom_prompt": "Focus on SAN items"}
+
+        # 2. Test AudioUploader notes resolution & API mode
+        cfg = Settings()
+        cfg.upload_mode = "api"
+        storage = RecordingsManager(cfg)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = os.path.join(tmpdir, "Meeting_2026-09-18.mp4")
+            notes_path = os.path.join(tmpdir, "Meeting_2026-09-18_Notes.md")
+            with open(audio_path, "wb") as f:
+                f.write(b"mp4 content")
+            with open(notes_path, "w", encoding="utf-8") as f:
+                f.write("# Copilot Live Notes\n- [x] Key question answered")
+
+            storage.add_recording(
+                file_path=audio_path,
+                trigger="manual",
+                duration_seconds=30.0,
+                notes_path=notes_path
+            )
+
+            uploader = AudioUploader(cfg, storage=storage)
+            resolved_p, resolved_txt = uploader._resolve_notes(audio_path, audio_path)
+            assert resolved_p == str(Path(notes_path).resolve())
+            assert "Key question answered" in resolved_txt
+
+            # Mock SpeakrClient during _process_background
+            with patch("core.uploader.SpeakrClient") as MockClientCls:
+                mock_client_inst = MagicMock()
+                mock_client_inst.upload_recording.return_value = "rec_789"
+                mock_client_inst.replace_recording_notes.return_value = True
+                mock_client_inst.add_recording_tags.return_value = True
+                MockClientCls.return_value = mock_client_inst
+
+                uploader._process_background(audio_path, [101], audio_path)
+
+                # Verify upload_recording called with notes
+                mock_client_inst.upload_recording.assert_called_once()
+                call_args, call_kwargs = mock_client_inst.upload_recording.call_args
+                assert "Key question answered" in call_kwargs["notes"]
+                # Verify replace_recording_notes confirmed notes on Speakr
+                mock_client_inst.replace_recording_notes.assert_called_with("rec_789", resolved_txt)
+
+            # 3. Test AudioUploader Folder mode copies notes
+            cfg.upload_mode = "folder"
+            nas_dir = os.path.join(tmpdir, "NAS_Inbox")
+            os.makedirs(nas_dir, exist_ok=True)
+            cfg.nas_folder_path = nas_dir
+
+            uploader._process_background(audio_path, [], audio_path)
+            copied_audio = os.path.join(nas_dir, "Meeting_2026-09-18.mp4")
+            copied_notes = os.path.join(nas_dir, "Meeting_2026-09-18_Notes.md")
+            assert os.path.exists(copied_audio)
+            assert os.path.exists(copied_notes)
+            with open(copied_notes, "r", encoding="utf-8") as f:
+                assert "Key question answered" in f.read()
+
+    finally:
+        if os.path.exists(temp_audio):
+            os.remove(temp_audio)
+
+    print("[OK] Notes Upload and Summarization Linkage passed.")
+
 if __name__ == "__main__":
     test_memory_and_scratchpad()
     test_prompts_and_tag_personas()
@@ -388,5 +500,6 @@ if __name__ == "__main__":
     test_suggested_questions_accumulation()
     test_lm_studio_configuration()
     test_recordings_notes_linking_and_viewer()
+    test_notes_upload_and_summarization_linkage()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
 
