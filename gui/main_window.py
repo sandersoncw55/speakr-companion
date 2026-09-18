@@ -544,6 +544,11 @@ class MainWindow(QMainWindow):
             
             # 6. Action buttons container (only instantiate if needed)
             if rebuild_widgets or self.history_table.cellWidget(row, 6) is None:
+                action_widget = QWidget()
+                action_layout = QHBoxLayout(action_widget)
+                action_layout.setContentsMargins(4, 2, 4, 2)
+                action_layout.setSpacing(4)
+
                 # Notes button (if notes file exists)
                 notes_path = rec.get("notes_path", "")
                 if not notes_path and file_path and os.path.exists(file_path):

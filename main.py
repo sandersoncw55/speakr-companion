@@ -18,10 +18,7 @@ def main():
     except Exception:
         pass
 
-    # Windows 10/11 high DPI scaling compatibility
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-
+    # Windows 10/11 high DPI scaling is native in Qt 6
     app = QApplication(sys.argv)
     app.setWindowIcon(get_app_icon())
     
