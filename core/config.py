@@ -412,6 +412,33 @@ class Settings:
         self.save()
 
     @property
+    def lm_studio_endpoint(self) -> str:
+        return self.data.get("lm_studio_endpoint", "http://localhost:1234/v1")
+
+    @lm_studio_endpoint.setter
+    def lm_studio_endpoint(self, val: str) -> None:
+        self.data["lm_studio_endpoint"] = val
+        self.save()
+
+    @property
+    def lm_studio_server_type(self) -> str:
+        return self.data.get("lm_studio_server_type", "local")
+
+    @lm_studio_server_type.setter
+    def lm_studio_server_type(self, val: str) -> None:
+        self.data["lm_studio_server_type"] = val
+        self.save()
+
+    @property
+    def lm_studio_model(self) -> str:
+        return self.data.get("lm_studio_model", "local-model")
+
+    @lm_studio_model.setter
+    def lm_studio_model(self, val: str) -> None:
+        self.data["lm_studio_model"] = val
+        self.save()
+
+    @property
     def privacy_mode(self) -> bool:
         return bool(self.data.get("privacy_mode", False))
 

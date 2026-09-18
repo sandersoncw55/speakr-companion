@@ -5,7 +5,8 @@ from PySide6.QtGui import QIcon, QFont, QColor, QClipboard, QAction, QKeyEvent
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QLineEdit, QTextEdit, QPlainTextEdit,
-    QFrame, QSplitter, QCheckBox, QSlider, QApplication, QComboBox
+    QFrame, QSplitter, QCheckBox, QSlider, QApplication, QComboBox,
+    QAbstractItemView
 )
 from core.config import get_app_icon
 from core.copilot.memory import CopilotMemory, SuggestedQuestion
@@ -406,11 +407,53 @@ class FloatingCopilotHUD(QWidget):
         q_card_layout.setContentsMargins(10, 8, 10, 8)
         q_card_layout.setSpacing(6)
 
+        q_head_layout = QHBoxLayout()
+        q_head_layout.setSpacing(6)
         q_head = QLabel("💡 SUGGESTED QUESTIONS & FOLLOW-UPS")
         q_head.setStyleSheet("font-size: 11px; font-weight: bold; color: #38bdf8; letter-spacing: 0.5px;")
-        q_card_layout.addWidget(q_head)
+        q_head_layout.addWidget(q_head)
+
+        self.q_count_badge = QLabel("0")
+        self.q_count_badge.setStyleSheet("""
+            QLabel {
+                background-color: #0369a1;
+                color: #e0f2fe;
+                font-size: 10px;
+                font-weight: bold;
+                border-radius: 7px;
+                padding: 1px 6px;
+            }
+        """)
+        self.q_count_badge.setVisible(False)
+        q_head_layout.addWidget(self.q_count_badge)
+        q_head_layout.addStretch()
+
+        self.q_clear_btn = QPushButton("Clear All")
+        self.q_clear_btn.setToolTip("Clear all pending suggested questions")
+        self.q_clear_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                color: #94a3b8;
+                font-size: 10px;
+                padding: 1px 6px;
+            }
+            QPushButton:hover {
+                background: #1e293b;
+                color: #f87171;
+                border-color: #7f1d1d;
+            }
+        """)
+        self.q_clear_btn.clicked.connect(self._clear_suggested_questions)
+        self.q_clear_btn.setVisible(False)
+        q_head_layout.addWidget(self.q_clear_btn)
+        q_card_layout.addLayout(q_head_layout)
 
         self.questions_list = QListWidget()
+        self.questions_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.questions_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.questions_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.questions_list.setStyleSheet("""
             QListWidget { background: transparent; border: none; }
             QListWidget::item {
@@ -624,10 +667,20 @@ class FloatingCopilotHUD(QWidget):
         self.memory.add_user_note(f"⚡ [{title}] {text}")
         self._render_notes()
 
+    def _clear_suggested_questions(self):
+        """Clears pending questions from memory and updates display."""
+        self.memory.clear_suggested_questions(status="pending")
+        self._render_questions()
+
     def _render_questions(self):
         self.questions_list.clear()
         pending_questions = [q for q in self.memory.suggested_questions if q.status == "pending"]
         
+        count = len(pending_questions)
+        self.q_count_badge.setText(f"{count} pending" if count > 0 else "0")
+        self.q_count_badge.setVisible(count > 0)
+        self.q_clear_btn.setVisible(count > 0)
+
         for q in pending_questions:
             item = QListWidgetItem(self.questions_list)
             widget = QuestionItemWidget(

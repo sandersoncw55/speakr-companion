@@ -742,6 +742,7 @@ class MainWindow(QMainWindow):
         # Row 0: LLM Provider
         self.llm_provider_combo = QComboBox(self)
         self.llm_provider_combo.addItem("Offline Extractive (Zero Config / Free / Private)", "offline")
+        self.llm_provider_combo.addItem("LM Studio (Local / Remote Server)", "lm_studio")
         self.llm_provider_combo.addItem("OpenRouter Cloud (GPT-4o-mini, Claude, etc.)", "openrouter")
         self.llm_provider_combo.addItem("Google Gemini Cloud (Flash 2.0)", "gemini")
         self.llm_provider_combo.addItem("Local Ollama (via HTTP)", "ollama")
@@ -751,33 +752,49 @@ class MainWindow(QMainWindow):
         self.llm_provider_combo.currentIndexChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("Reasoning Engine:", self.llm_provider_combo)
 
-        # Row 1: OpenRouter Key
+        # Row 1: LM Studio Server Type
+        self.lm_studio_type_combo = QComboBox(self)
+        self.lm_studio_type_combo.addItem("Local Server (localhost:1234)", "local")
+        self.lm_studio_type_combo.addItem("Remote Server (Custom URL / LAN Host)", "remote")
+        lm_type_idx = self.lm_studio_type_combo.findData(self.settings.lm_studio_server_type)
+        if lm_type_idx >= 0:
+            self.lm_studio_type_combo.setCurrentIndex(lm_type_idx)
+        self.lm_studio_type_combo.currentIndexChanged.connect(self._on_lm_studio_type_changed)
+        self.llm_form.addRow("LM Studio Server:", self.lm_studio_type_combo)
+
+        # Row 2: LM Studio Endpoint
+        self.lm_studio_url_input = QLineEdit(self.settings.lm_studio_endpoint)
+        self.lm_studio_url_input.setPlaceholderText("http://localhost:1234/v1 or http://192.168.0.88:1234/v1")
+        self.lm_studio_url_input.textChanged.connect(self._asr_settings_changed)
+        self.llm_form.addRow("LM Studio URL:", self.lm_studio_url_input)
+
+        # Row 3: OpenRouter Key
         self.openrouter_key_input = QLineEdit(self.settings.openrouter_api_key)
         self.openrouter_key_input.setEchoMode(QLineEdit.Password)
         self.openrouter_key_input.setPlaceholderText("sk-or-v1-...")
         self.openrouter_key_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("OpenRouter Key:", self.openrouter_key_input)
 
-        # Row 2: Gemini Key
+        # Row 4: Gemini Key
         self.gemini_key_input = QLineEdit(self.settings.gemini_api_key)
         self.gemini_key_input.setEchoMode(QLineEdit.Password)
         self.gemini_key_input.setPlaceholderText("AIzaSy...")
         self.gemini_key_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("Gemini API Key:", self.gemini_key_input)
 
-        # Row 3: Ollama Endpoint
+        # Row 5: Ollama Endpoint
         self.ollama_endpoint_input = QLineEdit(self.settings.ollama_endpoint)
         self.ollama_endpoint_input.setPlaceholderText("http://localhost:11434/api/generate")
         self.ollama_endpoint_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("Ollama Endpoint:", self.ollama_endpoint_input)
 
-        # Row 4: LLM Model Name
+        # Row 6: LLM Model Name
         self.llm_model_input = QLineEdit(self.settings.llm_model)
-        self.llm_model_input.setPlaceholderText("openai/gpt-4o-mini or llama3.2")
+        self.llm_model_input.setPlaceholderText("openai/gpt-4o-mini, llama3.2, or local-model")
         self.llm_model_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("Model Name:", self.llm_model_input)
 
-        # Row 5: Cadence
+        # Row 7: Cadence
         self.cadence_combo = QComboBox(self)
         self.cadence_combo.addItem("20 Seconds", 20)
         self.cadence_combo.addItem("35 Seconds (Default)", 35)
@@ -791,8 +808,8 @@ class MainWindow(QMainWindow):
         self.cadence_combo.currentIndexChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("Analysis Cadence:", self.cadence_combo)
 
-        # Row 6: Air-Gap / Privacy Mode
-        self.privacy_mode_chk = QCheckBox("Air-Gap / Privacy Mode (Blocks cloud APIs, forces local ASR & Offline/Ollama)")
+        # Row 8: Air-Gap / Privacy Mode
+        self.privacy_mode_chk = QCheckBox("Air-Gap / Privacy Mode (Blocks cloud APIs, forces local ASR & Offline/Ollama/LM Studio)")
         self.privacy_mode_chk.setChecked(self.settings.privacy_mode)
         self.privacy_mode_chk.toggled.connect(self._asr_settings_changed)
         self.llm_form.addRow("", self.privacy_mode_chk)
@@ -1320,6 +1337,17 @@ class MainWindow(QMainWindow):
         self.settings.copilot_enabled = checked
         self._log(f"Live Copilot HUD enabled: {checked}")
 
+    def _on_lm_studio_type_changed(self, index: int) -> None:
+        stype = self.lm_studio_type_combo.currentData()
+        current_url = self.lm_studio_url_input.text().strip()
+        if stype == "local":
+            if not current_url or "192.168." in current_url or "10." in current_url:
+                self.lm_studio_url_input.setText("http://localhost:1234/v1")
+        elif stype == "remote":
+            if current_url in ("", "http://localhost:1234/v1"):
+                self.lm_studio_url_input.setText("http://192.168.0.88:1234/v1")
+        self._asr_settings_changed()
+
     def _update_dynamic_copilot_settings_visibility(self) -> None:
         """Dynamically shows only fields relevant to selected ASR and LLM engines."""
         if not hasattr(self, "asr_form") or not hasattr(self, "llm_form"):
@@ -1340,17 +1368,20 @@ class MainWindow(QMainWindow):
         self.asr_form.setRowVisible(5, is_openai)
 
         # LLM rows:
-        # 0: provider, 1: openrouter key, 2: gemini key, 3: ollama endpoint, 4: model name, 5: cadence, 6: privacy
+        # 0: provider, 1: lm studio type, 2: lm studio url, 3: openrouter key, 4: gemini key, 5: ollama endpoint, 6: model name, 7: cadence, 8: privacy
         llm = self.llm_provider_combo.currentData()
         is_offline = (llm == "offline")
+        is_lm_studio = (llm == "lm_studio")
         is_openrouter = (llm == "openrouter")
         is_gemini = (llm == "gemini")
         is_ollama = (llm == "ollama")
 
-        self.llm_form.setRowVisible(1, is_openrouter)
-        self.llm_form.setRowVisible(2, is_gemini)
-        self.llm_form.setRowVisible(3, is_ollama)
-        self.llm_form.setRowVisible(4, not is_offline)
+        self.llm_form.setRowVisible(1, is_lm_studio)
+        self.llm_form.setRowVisible(2, is_lm_studio)
+        self.llm_form.setRowVisible(3, is_openrouter)
+        self.llm_form.setRowVisible(4, is_gemini)
+        self.llm_form.setRowVisible(5, is_ollama)
+        self.llm_form.setRowVisible(6, not is_offline)
 
     def _asr_settings_changed(self) -> None:
         provider = self.asr_provider_combo.currentData()
@@ -1367,6 +1398,12 @@ class MainWindow(QMainWindow):
         llm_provider = self.llm_provider_combo.currentData()
         if llm_provider:
             self.settings.llm_provider = llm_provider
+        if hasattr(self, "lm_studio_type_combo"):
+            lm_type = self.lm_studio_type_combo.currentData()
+            if lm_type:
+                self.settings.lm_studio_server_type = lm_type
+        if hasattr(self, "lm_studio_url_input"):
+            self.settings.lm_studio_endpoint = self.lm_studio_url_input.text().strip()
         self.settings.openrouter_api_key = self.openrouter_key_input.text().strip()
         self.settings.gemini_api_key = self.gemini_key_input.text().strip()
         self.settings.ollama_endpoint = self.ollama_endpoint_input.text().strip()
@@ -1397,11 +1434,17 @@ class MainWindow(QMainWindow):
             elif self.settings.llm_provider == "gemini":
                 api_key = self.settings.gemini_api_key
 
+            endpoint = None
+            if self.settings.llm_provider == "ollama":
+                endpoint = self.settings.ollama_endpoint
+            elif self.settings.llm_provider == "lm_studio":
+                endpoint = self.settings.lm_studio_endpoint
+
             self.copilot_agent.configure(
                 provider=self.settings.llm_provider,
                 api_key=api_key,
                 model_name=self.settings.llm_model,
-                custom_endpoint=self.settings.ollama_endpoint if self.settings.llm_provider == "ollama" else None,
+                custom_endpoint=endpoint,
                 privacy_mode=self.settings.privacy_mode
             )
 
@@ -1519,11 +1562,17 @@ class MainWindow(QMainWindow):
         elif self.settings.llm_provider == "gemini":
             api_key = self.settings.gemini_api_key
 
+        endpoint = None
+        if self.settings.llm_provider == "ollama":
+            endpoint = self.settings.ollama_endpoint
+        elif self.settings.llm_provider == "lm_studio":
+            endpoint = self.settings.lm_studio_endpoint
+
         self.copilot_agent.configure(
             provider=self.settings.llm_provider,
             api_key=api_key,
             model_name=self.settings.llm_model,
-            custom_endpoint=self.settings.ollama_endpoint if self.settings.llm_provider == "ollama" else None,
+            custom_endpoint=endpoint,
             privacy_mode=self.settings.privacy_mode,
             active_tag=tag_name
         )

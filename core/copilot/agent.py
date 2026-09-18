@@ -246,7 +246,7 @@ class CopilotAgent:
         """Determines if offline fallback should be used."""
         if self.llm_provider == "offline":
             return True
-        if self.privacy_mode and self.llm_provider != "ollama":
+        if self.privacy_mode and self.llm_provider not in ("ollama", "lm_studio"):
             return True
         if self.llm_provider in ("openrouter", "gemini") and not self.api_key:
             return True
@@ -388,7 +388,43 @@ class CopilotAgent:
         if self.llm_provider == "offline":
             return self.offline_engine.generate_quick_action(user_content, self.memory.turns)
 
-        if self.privacy_mode or self.llm_provider == "ollama":
+        if self.llm_provider == "lm_studio":
+            raw_url = (self.custom_endpoint or "http://localhost:1234/v1").strip().rstrip("/")
+            if raw_url.endswith("/chat/completions"):
+                endpoint = raw_url
+            elif raw_url.endswith("/v1"):
+                endpoint = f"{raw_url}/chat/completions"
+            else:
+                endpoint = f"{raw_url}/v1/chat/completions"
+
+            headers = {
+                "Content-Type": "application/json"
+            }
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key.strip()}"
+            else:
+                headers["Authorization"] = "Bearer lm-studio"
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ]
+            payload = {
+                "model": self.model_name or "local-model",
+                "messages": messages,
+                "temperature": 0.3
+            }
+            if json_mode:
+                payload["response_format"] = {"type": "json_object"}
+
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(endpoint, headers=headers, json=payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
+                raise RuntimeError(f"LM Studio returned HTTP {resp.status_code}: {resp.text}")
+
+        elif self.llm_provider == "ollama" or (self.privacy_mode and self.llm_provider not in ("openrouter", "gemini")):
             # Local Ollama
             endpoint = self.custom_endpoint or "http://localhost:11434/api/generate"
             payload = {

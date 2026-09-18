@@ -214,8 +214,119 @@ def test_hud_controls_and_splitter():
     assert hud.is_pill_mode is False
     assert hud.full_widget.isVisible() is True
     
+    # Test HUD questions count badge and clear button
+    mem.set_suggested_questions([
+        {"question": "HUD Question 1", "rationale": "r1"},
+        {"question": "HUD Question 2", "rationale": "r2"}
+    ])
+    hud._render_questions()
+    assert hud.q_count_badge.isVisible() is True
+    assert hud.q_clear_btn.isVisible() is True
+    assert "2 pending" in hud.q_count_badge.text()
+    
+    # Test Clear button
+    hud._clear_suggested_questions()
+    assert hud.q_count_badge.isVisible() is False
+    assert hud.q_clear_btn.isVisible() is False
+    assert len(mem.suggested_questions) == 0
+
     hud.close()
     print("[OK] FloatingCopilotHUD and 3-way resizable splitter passed.")
+
+def test_suggested_questions_accumulation():
+    print("Testing Suggested Questions Accumulation & Deduplication across cycles...")
+    mem = CopilotMemory()
+
+    # Cycle 1: 2 questions returned
+    mem.set_suggested_questions([
+        {"question": "Who is leading the migration?", "rationale": "Owner"},
+        {"question": "What is the timeline?", "rationale": "Date"}
+    ])
+    assert len(mem.suggested_questions) == 2
+    assert [q.question for q in mem.suggested_questions] == [
+        "Who is leading the migration?",
+        "What is the timeline?"
+    ]
+
+    # User marks the first question as asked
+    mem.mark_question_asked("Who is leading the migration?")
+    assert mem.suggested_questions[0].status == "asked"
+
+    # Cycle 2: 2 questions (one existing, one new)
+    mem.set_suggested_questions([
+        {"question": "What is the timeline?", "rationale": "Date"},
+        {"question": "Are there rollback procedures?", "rationale": "Safety"}
+    ])
+    # Should accumulate to 3 total questions (no duplicates, previous questions NOT lost!)
+    assert len(mem.suggested_questions) == 3
+    assert mem.suggested_questions[0].status == "asked"
+    assert mem.suggested_questions[1].status == "pending"
+    assert mem.suggested_questions[2].question == "Are there rollback procedures?"
+
+    # Cycle 3: list of strings (from offline engine)
+    mem.set_suggested_questions([
+        "Are there rollback procedures?",  # duplicate - should not re-add
+        "Who is approving the change request?"  # new question
+    ])
+    assert len(mem.suggested_questions) == 4
+    assert mem.suggested_questions[3].question == "Who is approving the change request?"
+
+    # Test clear_suggested_questions with "pending" filter
+    mem.clear_suggested_questions(status="pending")
+    # Asked question should remain!
+    assert len(mem.suggested_questions) == 1
+    assert mem.suggested_questions[0].status == "asked"
+
+    # Test total clear
+    mem.clear_suggested_questions()
+    assert len(mem.suggested_questions) == 0
+    print("[OK] Suggested Questions Accumulation & Deduplication passed.")
+
+def test_lm_studio_configuration():
+    print("Testing LM Studio reasoning engine configuration & privacy mode...")
+    from core.copilot.agent import CopilotAgent
+    from core.config import Settings
+    
+    mem = CopilotMemory()
+    agent = CopilotAgent(mem, on_results_callback=lambda r: None)
+
+    # Configure LM Studio local
+    agent.configure(
+        provider="lm_studio",
+        custom_endpoint="http://localhost:1234/v1",
+        model_name="local-model",
+        privacy_mode=True
+    )
+    assert agent.llm_provider == "lm_studio"
+    assert agent.custom_endpoint == "http://localhost:1234/v1"
+    # Even in privacy mode, LM Studio is local/LAN, so _is_offline_mode must be False!
+    assert agent._is_offline_mode() is False
+
+    # Configure LM Studio remote server
+    agent.configure(
+        provider="lm_studio",
+        custom_endpoint="http://192.168.0.88:1234/v1",
+        model_name="qwen2.5-coder-7b",
+        privacy_mode=True
+    )
+    assert agent.custom_endpoint == "http://192.168.0.88:1234/v1"
+    assert agent._is_offline_mode() is False
+
+    # Switch to offline mode
+    agent.configure(provider="offline")
+    assert agent._is_offline_mode() is True
+
+    # Check Settings properties
+    cfg = Settings()
+    cfg.lm_studio_endpoint = "http://192.168.1.100:1234/v1"
+    assert cfg.lm_studio_endpoint == "http://192.168.1.100:1234/v1"
+    cfg.lm_studio_server_type = "remote"
+    assert cfg.lm_studio_server_type == "remote"
+    # Restore defaults
+    cfg.lm_studio_endpoint = "http://localhost:1234/v1"
+    cfg.lm_studio_server_type = "local"
+
+    print("[OK] LM Studio configuration & privacy mode passed.")
 
 if __name__ == "__main__":
     test_memory_and_scratchpad()
@@ -226,5 +337,7 @@ if __name__ == "__main__":
     test_audio_recorder_tap()
     test_offline_copilot_engine()
     test_hud_controls_and_splitter()
+    test_suggested_questions_accumulation()
+    test_lm_studio_configuration()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
 

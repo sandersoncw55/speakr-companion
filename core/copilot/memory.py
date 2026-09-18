@@ -88,26 +88,57 @@ class CopilotMemory:
 
     # --- Scratchpad Mutators (Interactive) ---
 
-    def set_suggested_questions(self, questions_data: List[Dict[str, str]]):
-        """Updates suggested questions from agent while preserving user status."""
+    def set_suggested_questions(self, questions_data: List[Any]):
+        """Accumulates suggested questions from agent while preventing duplicates and preserving user status."""
         with self.lock:
-            existing_statuses = {q.question.lower().strip(): q.status for q in self.suggested_questions}
-            
-            new_questions: List[SuggestedQuestion] = []
+            # Map normalized existing question texts to their index in self.suggested_questions
+            existing_map = {}
+            for idx, q in enumerate(self.suggested_questions):
+                norm_key = q.question.strip().lower().rstrip("?").rstrip(".")
+                existing_map[norm_key] = idx
+
             for i, qd in enumerate(questions_data):
-                q_text = qd.get("question", "").strip()
+                if isinstance(qd, dict):
+                    q_text = qd.get("question", "").strip()
+                    rationale = qd.get("rationale", "")
+                elif isinstance(qd, str):
+                    q_text = qd.strip()
+                    rationale = ""
+                else:
+                    continue
+
                 if not q_text:
                     continue
-                # If user previously asked or dismissed this question, maintain status
-                prev_status = existing_statuses.get(q_text.lower().strip(), "pending")
-                new_questions.append(SuggestedQuestion(
-                    id=f"q_{int(time.time())}_{i}",
+
+                norm_key = q_text.lower().rstrip("?").rstrip(".")
+                if norm_key in existing_map:
+                    # Question already exists (pending, asked, or dismissed) - retain it
+                    continue
+
+                # New question: append with pending status
+                new_q = SuggestedQuestion(
+                    id=f"q_{int(time.time())}_{len(self.suggested_questions)}_{i}",
                     question=q_text,
-                    rationale=qd.get("rationale", ""),
-                    status=prev_status
-                ))
-            
-            self.suggested_questions = new_questions
+                    rationale=rationale,
+                    status="pending"
+                )
+                self.suggested_questions.append(new_q)
+                existing_map[norm_key] = len(self.suggested_questions) - 1
+
+            # Cap total stored questions to 100 to prevent unbounded memory in very long calls
+            if len(self.suggested_questions) > 100:
+                # Keep pending questions, prune oldest dismissed/asked
+                pending = [q for q in self.suggested_questions if q.status == "pending"]
+                non_pending = [q for q in self.suggested_questions if q.status != "pending"]
+                self.suggested_questions = pending + non_pending[-40:]
+
+    def clear_suggested_questions(self, status: Optional[str] = None):
+        """Clears suggested questions, optionally filtering by status (e.g. 'pending')."""
+        with self.lock:
+            if status:
+                self.suggested_questions = [q for q in self.suggested_questions if q.status != status]
+            else:
+                self.suggested_questions.clear()
 
     def mark_question_asked(self, question_text: str):
         """Marks a question as asked by the user, moving it into notes context."""
