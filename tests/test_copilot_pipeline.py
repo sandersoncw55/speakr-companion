@@ -534,6 +534,97 @@ def test_hud_toggle_visibility_button():
 
     print("[OK] Open/Hide HUD Visibility Toggle Button passed.")
 
+def test_hud_clear_on_start_and_manual_reset():
+    print("Testing HUD Clear on Start Recording & Manual Reset...")
+    import tempfile
+    from PySide6.QtWidgets import QApplication
+    from core.config import Settings
+    from core.recorder import AudioRecorder
+    from core.uploader import AudioUploader
+    from core.storage import RecordingsManager
+    from gui.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    s = Settings()
+    s.copilot_enabled = True
+    rec = AudioRecorder()
+    stor = RecordingsManager(s)
+    up = AudioUploader(s, stor)
+    w = MainWindow(s, rec, up, stor)
+
+    try:
+        w._ensure_copilot_session()
+        hud = w.hud
+        mem = w.copilot_memory
+
+        # 1. Populate session data
+        mem.add_transcript("you", "Let's test the HUD clear flow.", time.time(), 1)
+        mem.set_suggested_questions([
+            {"question": "Is the rollback ready?", "rationale": "Safety"}
+        ])
+        mem.add_user_note("Chuck confirmed snapshot 1.")
+        hud._render_questions()
+        hud._render_notes()
+        hud.ticker_box.append("Test transcript line")
+
+        assert hud.questions_list.count() == 1
+        assert hud.notes_list.count() >= 1
+        assert len(hud.ticker_box.toPlainText()) > 0
+        assert len(mem.turns) == 1
+
+        # 2. Stop session: content MUST persist for user review!
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+            temp_rec = f.name
+
+        try:
+            saved_notes = w._stop_copilot_session(temp_rec)
+            assert saved_notes is not None
+            assert os.path.exists(saved_notes)
+            # HUD content must remain intact for post-meeting reading
+            assert hud.questions_list.count() == 1
+            assert hud.notes_list.count() >= 1
+            assert len(hud.ticker_box.toPlainText()) > 0
+            assert "Notes Saved" in hud.status_dot.toolTip()
+        finally:
+            if os.path.exists(temp_rec):
+                os.remove(temp_rec)
+
+        # 3. Test Manual Reset button (clears immediately on demand)
+        hud.reset_btn.click()
+        assert hud.questions_list.count() == 0
+        assert hud.notes_list.count() == 0
+        assert hud.ticker_box.toPlainText() == ""
+        assert len(mem.turns) == 0
+        assert len(mem.suggested_questions) == 0
+
+        # 4. Re-populate and verify automatic clear on Start Recording
+        mem.add_transcript("participants", "New meeting discussion...", time.time(), 2)
+        mem.set_suggested_questions([{"question": "Next step?", "rationale": "Action"}])
+        mem.add_user_note("Another note.")
+        hud._render_questions()
+        hud._render_notes()
+        hud.ticker_box.append("Second meeting speech")
+
+        assert hud.questions_list.count() == 1
+        assert len(hud.ticker_box.toPlainText()) > 0
+
+        # Now start new session -> HUD and memory must be wiped clean!
+        w._start_copilot_session()
+        assert hud.questions_list.count() == 0
+        assert hud.notes_list.count() == 0
+        assert hud.ticker_box.toPlainText() == ""
+        assert len(mem.turns) == 0
+        assert len(mem.suggested_questions) == 0
+        assert hud.status_dot.toolTip() == "Status: Recording Active"
+
+    finally:
+        if w.hud:
+            w.hud.close()
+        rec.terminate()
+        w.close()
+
+    print("[OK] HUD Clear on Start Recording & Manual Reset passed.")
+
 if __name__ == "__main__":
     test_memory_and_scratchpad()
     test_prompts_and_tag_personas()
@@ -548,5 +639,6 @@ if __name__ == "__main__":
     test_recordings_notes_linking_and_viewer()
     test_notes_upload_and_summarization_linkage()
     test_hud_toggle_visibility_button()
+    test_hud_clear_on_start_and_manual_reset()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
 

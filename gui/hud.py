@@ -309,6 +309,17 @@ class FloatingCopilotHUD(QWidget):
         opacity_box.addWidget(self.opacity_slider)
         header.addLayout(opacity_box)
 
+        # Reset Session / Clear HUD button
+        self.reset_btn = QPushButton("🔄")
+        self.reset_btn.setFixedSize(26, 24)
+        self.reset_btn.setToolTip("Reset HUD Session (Clear transcript, questions, & scratchpad)")
+        self.reset_btn.setStyleSheet("""
+            QPushButton { background: #1e293b; border: 1px solid #334155; border-radius: 4px; font-size: 11px; }
+            QPushButton:hover { background: #334155; color: #38bdf8; }
+        """)
+        self.reset_btn.clicked.connect(self._on_manual_reset_clicked)
+        header.addWidget(self.reset_btn)
+
         # Pin On Top toggle button
         self.pin_btn = QPushButton("📌")
         self.pin_btn.setCheckable(True)
@@ -754,11 +765,38 @@ class FloatingCopilotHUD(QWidget):
 
         self.notes_list.blockSignals(False)
 
-    def update_status(self, recording: bool, paused: bool, meeting_mode: str, asr_name_or_key: str):
+    def _on_manual_reset_clicked(self):
+        """Manually resets session memory and clears HUD displays."""
+        self.memory.clear()
+        self.clear()
+
+    def clear(self):
+        """Clears all UI elements in the HUD for a clean session."""
+        self.ticker_box.clear()
+        self.questions_list.clear()
+        self.notes_list.clear()
+        self.q_count_badge.setText("0")
+        self.q_count_badge.setVisible(False)
+        self.q_clear_btn.setVisible(False)
+        self.pill_text.setText("Listening for conversation...")
+        self.add_note_input.clear()
+        self.adhoc_input.clear()
+
+    def update_status(self, recording: bool, paused: bool, meeting_mode: str, asr_name_or_key: str, notes_saved: bool = False):
         """Updates header dropdowns, status dot, and pill state."""
         dot_str = "🟡" if paused else ("🔴" if recording else "🟢")
         self.status_dot.setText(dot_str)
         self.pill_dot.setText(dot_str)
+
+        if paused:
+            self.status_dot.setToolTip("Status: Paused")
+        elif recording:
+            self.status_dot.setToolTip("Status: Recording Active")
+        else:
+            status_text = "Status: Idle • Notes Saved 💾" if notes_saved else "Status: Idle"
+            self.status_dot.setToolTip(status_text)
+            if notes_saved:
+                self.pill_text.setText("🟢 Meeting Ended • Notes Saved 💾")
 
         # Sync meeting mode combo safely
         self.mode_combo.blockSignals(True)

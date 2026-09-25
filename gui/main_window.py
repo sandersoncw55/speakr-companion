@@ -1711,6 +1711,8 @@ class MainWindow(QMainWindow):
 
         self._ensure_copilot_session()
         self.copilot_memory.clear()
+        if self.hud:
+            self.hud.clear()
         self.vad_segmenter.reset()
         self.vad_segmenter.set_meeting_mode(self.settings.meeting_mode)
 
@@ -1757,14 +1759,6 @@ class MainWindow(QMainWindow):
         if self.copilot_agent:
             self.copilot_agent.stop()
 
-        if self.hud:
-            self.hud.update_status(
-                recording=False, 
-                paused=False, 
-                meeting_mode=self.settings.meeting_mode, 
-                asr_name_or_key=self.settings.asr_provider
-            )
-
         notes_saved_path: Optional[str] = None
         if self.copilot_memory and (self.copilot_memory.live_notes or self.copilot_memory.suggested_questions):
             notes_md = self.copilot_memory.get_scratchpad_markdown()
@@ -1787,6 +1781,15 @@ class MainWindow(QMainWindow):
                     self.storage.update_notes_path(associated_file_path, notes_saved_path)
             except Exception as ex:
                 self._log(f"[Copilot] Error saving live notes: {ex}")
+
+        if self.hud:
+            self.hud.update_status(
+                recording=False, 
+                paused=False, 
+                meeting_mode=self.settings.meeting_mode, 
+                asr_name_or_key=self.settings.asr_provider,
+                notes_saved=bool(notes_saved_path)
+            )
 
         return notes_saved_path
 
