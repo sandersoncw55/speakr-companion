@@ -4,7 +4,7 @@
 [![Windows 11 / 10](https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010%20(x64)-0078D6?logo=windows)](https://github.com/sandersoncw55/speakr-companion/releases/latest)
 [![CI Release](https://github.com/sandersoncw55/speakr-companion/actions/workflows/release.yml/badge.svg)](https://github.com/sandersoncw55/speakr-companion/actions/workflows/release.yml)
 
-A lightweight background desktop utility for Windows 11/10 designed to capture, manage, tag, and upload meeting recordings automatically to your self-hosted [**Speakr**](https://github.com/murtaza-nasir/speakr) instance.
+A lightweight, intelligent background desktop utility for Windows 11/10 designed to capture, transcribe, assist in real-time, manage, tag, and upload meeting recordings automatically to your self-hosted [**Speakr**](https://github.com/murtaza-nasir/speakr) instance.
 
 ---
 
@@ -14,8 +14,8 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 | Package | Description | Recommended For |
 | :--- | :--- | :--- |
-| 🚀 [**`SpeakrCompanion-Setup-v1.0.1.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.1/SpeakrCompanion-Setup-v1.0.1.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
-| 🗜️ [**`SpeakrCompanion_Portable_v1.0.1.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.0.1/SpeakrCompanion_Portable_v1.0.1.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
+| 🚀 [**`SpeakrCompanion-Setup-v1.1.0.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.1.0/SpeakrCompanion-Setup-v1.1.0.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
+| 🗜️ [**`SpeakrCompanion_Portable_v1.1.0.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.1.0/SpeakrCompanion_Portable_v1.1.0.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
 
 > [!NOTE]
 > The setup installer runs as a standard per-user installation in `%LOCALAPPDATA%\Programs\Speakr Companion` and does not require Administrator privileges or UAC elevation.
@@ -24,8 +24,24 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 ## ✨ Companion App Features
 
-- **Modern High-Resolution App Icon:** Multi-resolution master icon layers (from 16x16 up to 256x256) crafted for Windows shortcuts, high-DPI taskbars, and system trays.
-- **Configurable System Tray Minimization:** Choose whether minimizing or closing the window minimizes directly to the Windows notification area (system tray) or exits the app, with quick toggles in Preferences.
+### 🧠 Live Meeting Copilot & Floating HUD (New in v1.1.0)
+- **Always-on-Top 3-Pane Floating HUD:** Compact, resizable, translucent floating HUD with collapsible panes for:
+  - **Live Transcript Ticker:** Real-time conversational speech stream separating speaker channels (`[You]` vs `[Call Participants]`).
+  - **Suggested Questions Checklist:** Real-time AI-generated questions, clarifying inquiries, and technical prompts tailored to the ongoing discussion.
+  - **Scratchpad & Notes:** Live editable markdown notes and action items automatically synced to meeting sidecar files.
+- **Multi-Provider Live Speech Recognition (ASR):**
+  - **Local CPU (`faster-whisper`):** Offline, quantized INT8 Whisper models (`tiny.en`, `base.en`, `small.en`) running locally on CPU.
+  - **LAN Mac MLX (`Whisper-MLX`):** Offload real-time streaming transcription across your local network to an Apple Silicon Mac.
+  - **Cloud Providers:** High-speed cloud transcription via Groq (`whisper-large-v3`), OpenAI, Deepgram, or self-hosted Speakr backend.
+- **Local & Remote LM Studio Reasoning:**
+  - Connects to local or LAN [LM Studio](https://lmstudio.ai/) instances (`http://localhost:1234/v1` or remote IP) for 100% private, on-premise LLM reasoning with model auto-discovery.
+  - Periodic intelligent analysis cycling every 10–30 seconds to extract action items, open questions, and risks.
+- **Offline Extractive Engine:** Fallback rule-based heuristic extractor for completely air-gapped environments without any external LLM.
+- **Interactive Checklist Actions:** One-click actions to mark suggested questions as asked, copy to clipboard, or discard, with automatic retention and deduplication across cycles.
+- **Sidecar Markdown Notes & History Viewer:** Automatically generates `<MeetingName>_Notes.md` alongside recordings. Review markdown notes anytime from the **Recordings History** tab via the rich **View Notes** dialog.
+- **Automatic Post-Meeting Retention & HUD Reset:** Preserves notes and transcript in the HUD when a call finishes for post-meeting review, then automatically clears the workspace when your next recording begins (with manual reset anytime).
+
+### 🎙️ Audio Capture & Auto-Record
 - **Dual-Stream Audio Capture:** Simultaneously records your microphone and system audio (speakers) via WASAPI loopback without requiring active window focus.
 - **Dynamic Tagging:** Fetches your active tags directly from Speakr's REST API. Allows you to tag meetings before or during recording.
 - **Live Recording Duration Timer:** Real-time timer display (`HH:MM:SS`) in the dashboard status card, status bar, and tray tooltip while active.
@@ -42,21 +58,24 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
     - **5-Minute Silence Tolerance:** Stops recording when silence reaches 5 minutes (300s) and returns to audio-gated monitoring.
     - **Post-Record Filter:** Automatically discards recordings with < 30 seconds of active audio to eliminate notification dings.
 - **Flexible Upload Ingestion:**
-  - **API Upload:** Post recordings and tags directly to the Speakr server via REST API.
-  - **NAS Folder Copy:** Drop recordings into a local directory mapped to your Syncthing NAS Share (`Z:\AudioRecordings\Inbox`). The companion app automatically polls the Speakr API to match and tag the recording once ingested.
+  - **API Upload:** Post recordings, tags, and Copilot sidecar notes directly to the Speakr server via REST API.
+  - **NAS Folder Copy:** Drop recordings and sidecar notes into a local directory mapped to your Syncthing NAS Share (`Z:\AudioRecordings\Inbox`).
 - **Live Closed Captions Hint & Shortcut:** Integrated dashboard card with one-click access and shortcut guidance (<kbd>Win</kbd> + <kbd>Ctrl</kbd> + <kbd>L</kbd>) to toggle Windows 11's hardware-accelerated, real-time Live Captions for any active meeting or playback.
-
+- **Modern App Icon & Tray Minimization:** Multi-resolution icon layers (16x16 up to 256x256) with configurable minimize-to-tray and close-to-tray settings.
 
 ---
 
-## ⚙️ Configuration & Usage
+## ⚙️ Configuration & Preferences
 
-1. **Server Setup:** Under the **Preferences** tab, click **Add** to configure your Speakr instance. Enter a friendly name, the API base URL (e.g. `http://192.168.0.88:8899/api/v1`), and your API Key.
-2. **Upload Preference:**
-   - Choose **Direct API Upload** if you want the app to handle file uploads over HTTP.
-   - Choose **NAS Folder Copy** and browse to select your NAS Syncthing directory (e.g. `Z:\AudioRecordings\Inbox`) if you prefer local share synchronization.
-3. **Devices Select:** Choose your default or specific Microphone and Speaker channels. The level meters on the **Dashboard** will immediately show sound waves indicating functionality.
-4. **Auto-Record:** Toggle the checkbox to allow background process monitoring. The app will hide in the tray and start recording automatically whenever Zoom, Teams, or Citrix sessions begin!
+Under the **Preferences** tab, settings are organized into distinct categories:
+
+1. **General:** Local recording storage directory, retention expiration policy (default: 30 days), post-stop cooldown delay, and window/system tray minimize behaviors.
+2. **Speakr Server:** Configure Speakr endpoints, API keys, and upload preferences (Direct API Upload vs NAS Folder Copy).
+3. **Audio & Hardware:** Select microphone and speaker loopback devices, audio encoding format (`MP4 (AAC Compressed)` or `WAV (Uncompressed PCM)`), and auto-record process rules (Zoom, Teams, Citrix).
+4. **Live Copilot & AI:**
+   - **ASR Provider:** Choose between Local CPU Whisper (`tiny.en`, `base.en`, `small.en`), LAN Mac MLX, or Cloud API.
+   - **Reasoning LLM:** Configure LM Studio endpoint (`http://localhost:1234/v1`), API key, model name (auto-detected via `Fetch Models`), or enable Offline Extractive Engine.
+   - **Meeting Mode & Personas:** Toggle between Virtual (dual-channel: mic + system loopback) and In-Person (mic only), and select meeting personas (e.g. CAB Meeting, Bridge Call Troubleshooting, Architecture Review, General).
 
 ---
 
@@ -116,6 +135,7 @@ powershell -ExecutionPolicy Bypass -File .\package_release.ps1
 
 A GitHub Actions workflow (`.github/workflows/release.yml`) is included. Whenever you push a version tag, GitHub cloud runners automatically build and publish the release:
 ```powershell
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.1.0
+git push origin v1.1.0
 ```
+
