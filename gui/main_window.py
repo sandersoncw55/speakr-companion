@@ -241,7 +241,7 @@ class MainWindow(QMainWindow):
         
         self.setWindowTitle("Speakr Windows Companion")
         self.setWindowIcon(get_app_icon())
-        self.resize(920, 680)
+        self.resize(1040, 955)
         self.setMinimumSize(780, 600)
         
         # Thread-safe signaler
