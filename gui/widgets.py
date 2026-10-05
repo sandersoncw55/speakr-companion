@@ -2,13 +2,16 @@ from typing import List, Dict, Any, Optional
 from PySide6.QtCore import Qt, QTimer, QRectF, QSize
 from PySide6.QtGui import QPainter, QColor, QLinearGradient, QBrush, QPen
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout, QLabel
+from gui.theme import get_theme_palette
 
 class VolumeMeter(QWidget):
-    """Custom volume meter widget displaying audio level in decibels (-96dB to 0dB)."""
+    """Custom volume meter widget displaying audio level in decibels (-60dB to 0dB) with theme awareness."""
 
-    def __init__(self, label: str = "", parent: Optional[QWidget] = None):
+    def __init__(self, label: str = "", channel_type: str = "default", theme: str = "dark", parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.label = label
+        self.channel_type = channel_type.lower()  # 'mic', 'system', or 'default'
+        self.theme = theme
         self.db_level = -96.0
         self.peak_level = -96.0
         self.min_db = -60.0  # Decibel range to display
@@ -20,6 +23,11 @@ class VolumeMeter(QWidget):
         self.decay_timer.start(50)  # 20 FPS decay updates
         
         self.setMinimumHeight(28)
+
+    def set_theme(self, theme: str) -> None:
+        """Update current color theme and redraw."""
+        self.theme = theme
+        self.update()
 
     def set_level(self, db: float) -> None:
         """Set the current decibel level."""
@@ -40,11 +48,12 @@ class VolumeMeter(QWidget):
         
         width = self.width()
         height = self.height()
+        p = get_theme_palette(self.theme)
         
         # Draw background track
-        track_color = QColor(15, 23, 42)  # Dark slate #0f172a
+        track_color = QColor(p["meter_track"])
         painter.setBrush(QBrush(track_color))
-        painter.setPen(QPen(QColor(51, 65, 85), 1))  # Border #334155
+        painter.setPen(QPen(QColor(p["meter_track_border"]), 1))
         painter.drawRoundedRect(0, 0, width - 1, height - 1, 4, 4)
         
         # Calculate percentage filled
@@ -54,11 +63,20 @@ class VolumeMeter(QWidget):
         fill_width = int((width - 2) * fill_ratio)
         
         if fill_width > 0:
-            # Draw gradient bar (Emerald -> Amber -> Crimson)
             gradient = QLinearGradient(0, 0, width, 0)
-            gradient.setColorAt(0.0, QColor(16, 185, 129))  # Emerald #10b981
-            gradient.setColorAt(0.7, QColor(245, 158, 11))  # Amber #f59e0b
-            gradient.setColorAt(0.9, QColor(239, 68, 68))   # Crimson #ef4444
+            if "mic" in self.channel_type or "mic" in self.label.lower():
+                # Channel 1: Electric / Cerulean Cyan
+                gradient.setColorAt(0.0, QColor(p["meter_mic_start"]))
+                gradient.setColorAt(1.0, QColor(p["meter_mic_end"]))
+            elif "sys" in self.channel_type or "speaker" in self.channel_type or "loopback" in self.label.lower() or "speaker" in self.label.lower():
+                # Channel 2: Soft Lavender / Royal Violet
+                gradient.setColorAt(0.0, QColor(p["meter_sys_start"]))
+                gradient.setColorAt(1.0, QColor(p["meter_sys_end"]))
+            else:
+                # Default multi-stop meter
+                gradient.setColorAt(0.0, QColor(p["accent_emerald"]))
+                gradient.setColorAt(0.7, QColor(245, 158, 11))
+                gradient.setColorAt(0.95, QColor(p["accent_coral"]))
             
             painter.setBrush(QBrush(gradient))
             painter.setPen(Qt.NoPen)
@@ -70,11 +88,18 @@ class VolumeMeter(QWidget):
         peak_x = int((width - 2) * peak_ratio)
         
         if peak_x > 0:
-            painter.setPen(QPen(QColor(255, 255, 255, 220), 2))
+            if "mic" in self.channel_type or "mic" in self.label.lower():
+                peak_color = QColor(p["meter_mic_peak"])
+            elif "sys" in self.channel_type or "speaker" in self.channel_type or "loopback" in self.label.lower() or "speaker" in self.label.lower():
+                peak_color = QColor(p["meter_sys_peak"])
+            else:
+                peak_color = QColor(255, 255, 255, 220)
+                
+            painter.setPen(QPen(peak_color, 2))
             painter.drawLine(peak_x, 2, peak_x, height - 2)
             
         # Draw text overlay
-        painter.setPen(QColor(248, 250, 252))  # #f8fafc
+        painter.setPen(QColor(p["text_primary"]))
         font = painter.font()
         font.setPointSize(8)
         font.setBold(True)
@@ -97,36 +122,47 @@ class VolumeMeter(QWidget):
 class TagSelector(QWidget):
     """Dynamic list of tags retrieved from the Speakr server."""
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, theme: str = "dark", parent: Optional[QWidget] = None):
         super().__init__(parent)
+        self.theme = theme
         self.tags_data: List[Dict[str, Any]] = []
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
         self.list_widget = QListWidget(self)
-        self.list_widget.setStyleSheet("""
-            QListWidget {
-                background-color: #0f172a;
-                border: 1px solid #334155;
+        layout.addWidget(self.list_widget)
+        self.set_theme(theme)
+
+    def set_theme(self, theme: str) -> None:
+        """Update styling for current theme."""
+        self.theme = theme
+        p = get_theme_palette(theme)
+        self.list_widget.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {p['bg_input']};
+                border: 1px solid {p['border_subtle']};
                 border-radius: 4px;
                 outline: none;
-            }
-            QListWidget::item {
+            }}
+            QListWidget::item {{
                 padding: 0px;
                 margin: 0px;
-                border-bottom: 1px solid #1e293b;
-            }
-            QListWidget::item:hover {
-                background-color: #1e293b;
-            }
+                border-bottom: 1px solid {p['border_subtle']};
+            }}
+            QListWidget::item:hover {{
+                background-color: {p['bg_hover']};
+            }}
         """)
-        layout.addWidget(self.list_widget)
+        # Refresh existing tag items styling
+        if self.tags_data:
+            self.set_tags(self.tags_data)
 
     def set_tags(self, tags: List[Dict[str, Any]]) -> None:
         """Populate the list with tags."""
         self.list_widget.clear()
         self.tags_data = tags
+        p = get_theme_palette(self.theme)
         
         for tag in tags:
             tag_id = tag.get("id")
@@ -142,34 +178,34 @@ class TagSelector(QWidget):
             # Checkbox
             checkbox = QCheckBox(name)
             checkbox.setProperty("tag_id", tag_id)
-            checkbox.setStyleSheet("""
-                QCheckBox {
-                    color: #f8fafc;
+            checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {p['text_primary']};
                     font-size: 12px;
                     spacing: 8px;
                     padding-left: 2px;
-                }
-                QCheckBox::indicator {
+                }}
+                QCheckBox::indicator {{
                     width: 16px;
                     height: 16px;
-                    background-color: #0f172a;
-                    border: 1px solid #475569;
+                    background-color: {p['bg_input']};
+                    border: 1px solid {p['border_medium']};
                     border-radius: 3px;
-                }
-                QCheckBox::indicator:hover {
-                    border-color: #38bdf8;
-                }
-                QCheckBox::indicator:checked {
-                    background-color: #0284c7;
-                    border-color: #38bdf8;
-                }
+                }}
+                QCheckBox::indicator:hover {{
+                    border-color: {p['border_focus']};
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: {p['accent_cyan']};
+                    border-color: {p['accent_cyan']};
+                }}
             """)
             container_layout.addWidget(checkbox)
             
             # Color badge
             badge = QLabel()
             badge.setFixedSize(12, 12)
-            badge.setStyleSheet(f"background-color: {color_hex}; border-radius: 6px; border: 1px solid #475569;")
+            badge.setStyleSheet(f"background-color: {color_hex}; border-radius: 6px; border: 1px solid {p['border_medium']};")
             container_layout.addWidget(badge)
             
             container_layout.addStretch()

@@ -21,6 +21,7 @@ from core.client import SpeakrClient
 from core.uploader import AudioUploader
 from core.storage import RecordingsManager
 from gui.widgets import VolumeMeter, TagSelector
+from gui.theme import get_theme_stylesheet, get_theme_palette
 from core.copilot.segmenter import VADSegmenter, AudioSegment
 from core.copilot.memory import CopilotMemory
 from core.copilot.agent import CopilotAgent, fetch_lm_studio_models
@@ -352,47 +353,19 @@ class MainWindow(QMainWindow):
         self._update_copilot_toggle_state()
         bar_layout.addWidget(self.copilot_toggle_btn)
 
+        # Quick Theme Switcher Button
+        self.theme_toggle_btn = QPushButton("🌙 Dark" if self.settings.theme == "dark" else "☀️ Light")
+        self.theme_toggle_btn.setToolTip("Toggle between Cyber Dark and Studio Light themes")
+        self.theme_toggle_btn.clicked.connect(self._toggle_theme_btn_clicked)
+        bar_layout.addWidget(self.theme_toggle_btn)
+
         # Record Button
         self.record_btn = QPushButton("⏺ Start Recording")
-        self.record_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #059669;
-                color: white;
-                font-weight: bold;
-                padding: 6px 14px;
-                border-radius: 4px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #047857;
-            }
-            QPushButton:disabled {
-                background-color: #475569;
-                color: #94a3b8;
-            }
-        """)
         self.record_btn.clicked.connect(self._toggle_recording)
         bar_layout.addWidget(self.record_btn)
 
         # Pause / Resume Button
         self.pause_btn = QPushButton("⏸ Pause")
-        self.pause_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #d97706;
-                color: white;
-                font-weight: bold;
-                padding: 6px 14px;
-                border-radius: 4px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #b45309;
-            }
-            QPushButton:disabled {
-                background-color: #475569;
-                color: #94a3b8;
-            }
-        """)
         self.pause_btn.clicked.connect(self._toggle_pause)
         self.pause_btn.setVisible(False)
         bar_layout.addWidget(self.pause_btn)
@@ -444,40 +417,44 @@ class MainWindow(QMainWindow):
     def _update_copilot_toggle_state(self) -> None:
         """Synchronizes copilot toggle button state with settings and dashboard widget."""
         enabled = self.settings.copilot_enabled
+        p = get_theme_palette(self.settings.theme)
+        is_light = (self.settings.theme == "light")
+        
         if enabled:
             self.copilot_toggle_btn.setText("🤖 Copilot: ON")
             self.copilot_toggle_btn.setToolTip("Live Copilot is Enabled (Click to Turn Off)")
-            self.copilot_toggle_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #065f46;
-                    color: #a7f3d0;
-                    border: 1px solid #059669;
+            self.copilot_toggle_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {p['accent_indigo_bg'] if is_light else '#1e1b4b'};
+                    color: {'#3730a3' if is_light else '#c7d2fe'};
+                    border: 1px solid {p['accent_indigo']};
                     font-weight: bold;
                     padding: 6px 12px;
                     border-radius: 4px;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: #047857;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {p['accent_indigo_bg']};
+                    opacity: 0.9;
+                }}
             """)
         else:
             self.copilot_toggle_btn.setText("🤖 Copilot: OFF")
             self.copilot_toggle_btn.setToolTip("Live Copilot is Disabled (Click to Turn On)")
-            self.copilot_toggle_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #1e293b;
-                    color: #94a3b8;
-                    border: 1px solid #334155;
+            self.copilot_toggle_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {p['bg_surface'] if is_light else '#1e242e'};
+                    color: {p['text_muted']};
+                    border: 1px solid {p['border_subtle']};
                     font-weight: bold;
                     padding: 6px 12px;
                     border-radius: 4px;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: #334155;
-                    color: #f8fafc;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {p['bg_hover'] if is_light else '#252b36'};
+                    color: {p['text_primary']};
+                }}
             """)
 
         if hasattr(self, "pref_copilot_chk") and self.pref_copilot_chk:
@@ -513,27 +490,45 @@ class MainWindow(QMainWindow):
         is_rec = self.recorder.is_recording
         is_paused = self.recorder.is_paused
         in_cooldown = (self.cooldown_remaining > 0)
+        p = get_theme_palette(self.settings.theme)
+        is_light = (self.settings.theme == "light")
 
         if is_rec:
             # Active recording or paused
             self.record_btn.setVisible(True)
             self.record_btn.setEnabled(True)
             self.record_btn.setText("⏹ Stop Recording")
-            self.record_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #dc2626; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 12px;
-                }
-                QPushButton:hover { background-color: #b91c1c; }
+            self.record_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {p['accent_coral_bg'] if is_light else '#3f141e'};
+                    color: {'#be123c' if is_light else '#fca5a5'};
+                    border: 1px solid {p['accent_coral']};
+                    font-weight: bold;
+                    padding: 6px 14px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                }}
+                QPushButton:hover {{
+                    background-color: {'#fecdd3' if is_light else '#4c1d24'};
+                }}
             """)
             self.pause_btn.setVisible(True)
             self.pause_btn.setEnabled(True)
             if is_paused:
                 self.pause_btn.setText("▶ Resume")
-                self.pause_btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #059669; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 12px;
-                    }
-                    QPushButton:hover { background-color: #047857; }
+                self.pause_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {p['accent_emerald_bg'] if is_light else '#064e3b'};
+                        color: {'#065f46' if is_light else '#a7f3d0'};
+                        border: 1px solid {p['accent_emerald']};
+                        font-weight: bold;
+                        padding: 6px 14px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                    }}
+                    QPushButton:hover {{
+                        opacity: 0.9;
+                    }}
                 """)
             else:
                 self.pause_btn.setText("⏸ Pause")
@@ -550,10 +545,16 @@ class MainWindow(QMainWindow):
             self.record_btn.setVisible(True)
             self.record_btn.setEnabled(False)
             self.record_btn.setText(f"Cooldown ({self.cooldown_remaining}s)")
-            self.record_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #475569; color: #94a3b8; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 12px;
-                }
+            self.record_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {p['bg_surface'] if is_light else '#252b36'};
+                    color: {p['text_muted']};
+                    border: 1px solid {p['border_medium']};
+                    font-weight: bold;
+                    padding: 6px 14px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                }}
             """)
             self.pause_btn.setVisible(False)
             self.upload_last_btn.setVisible(False)
@@ -563,11 +564,19 @@ class MainWindow(QMainWindow):
             self.record_btn.setVisible(True)
             self.record_btn.setEnabled(True)
             self.record_btn.setText("⏺ Start Recording")
-            self.record_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #059669; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 12px;
-                }
-                QPushButton:hover { background-color: #047857; }
+            self.record_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {p['accent_emerald_bg'] if is_light else '#064e3b'};
+                    color: {'#065f46' if is_light else '#a7f3d0'};
+                    border: 1px solid {p['accent_emerald']};
+                    font-weight: bold;
+                    padding: 6px 14px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                }}
+                QPushButton:hover {{
+                    opacity: 0.9;
+                }}
             """)
             self.pause_btn.setVisible(False)
             self.upload_last_btn.setVisible(True)
@@ -624,8 +633,8 @@ class MainWindow(QMainWindow):
         meters_group = QGroupBox("Live Audio Input Levels")
         meters_layout = QVBoxLayout(meters_group)
         
-        self.mic_meter = VolumeMeter("Microphone", self)
-        self.spk_meter = VolumeMeter("Speakers (Loopback)", self)
+        self.mic_meter = VolumeMeter("Microphone", channel_type="mic", theme=self.settings.theme, parent=self)
+        self.spk_meter = VolumeMeter("Speakers (Loopback)", channel_type="system", theme=self.settings.theme, parent=self)
         
         meters_layout.addWidget(self.mic_meter)
         meters_layout.addWidget(self.spk_meter)
@@ -635,7 +644,7 @@ class MainWindow(QMainWindow):
         tag_group = QGroupBox("Assign Meeting Tags")
         tag_layout = QVBoxLayout(tag_group)
         
-        self.tag_selector = TagSelector(self)
+        self.tag_selector = TagSelector(theme=self.settings.theme, parent=self)
         tag_layout.addWidget(self.tag_selector, 1)
         
         # Fetch tags button
@@ -1183,6 +1192,20 @@ class MainWindow(QMainWindow):
         self.close_to_tray_chk.setChecked(self.settings.close_to_tray)
         self.close_to_tray_chk.toggled.connect(self._tray_prefs_changed)
         tray_layout.addWidget(self.close_to_tray_chk)
+
+        # Color Theme Selector
+        theme_row = QHBoxLayout()
+        theme_row.addWidget(QLabel("Color Theme:"))
+        self.pref_theme_combo = QComboBox(self)
+        self.pref_theme_combo.addItem("🌙 Cyber Dark (Obsidian & Cyan/Purple)", "dark")
+        self.pref_theme_combo.addItem("☀️ Studio Light (Clean Slate & Cerulean)", "light")
+        t_idx = self.pref_theme_combo.findData(self.settings.theme)
+        if t_idx >= 0:
+            self.pref_theme_combo.setCurrentIndex(t_idx)
+        self.pref_theme_combo.currentIndexChanged.connect(self._on_pref_theme_changed)
+        theme_row.addWidget(self.pref_theme_combo, 1)
+        tray_layout.addLayout(theme_row)
+
         tab_audio_layout.addWidget(tray_group)
 
         self.pref_subtabs.addTab(tab_audio, "Audio Hardware && Rules")
@@ -1577,6 +1600,55 @@ class MainWindow(QMainWindow):
         self.settings.minimize_to_tray = self.min_to_tray_chk.isChecked()
         self.settings.close_to_tray = self.close_to_tray_chk.isChecked()
         self._log(f"Tray preferences updated: minimize_to_tray={self.settings.minimize_to_tray}, close_to_tray={self.settings.close_to_tray}")
+
+    def _set_theme(self, theme_name: str) -> None:
+        """Dynamically applies Cyber Dark or Studio Light theme across the application."""
+        theme_name = "light" if str(theme_name).lower() == "light" else "dark"
+        self.settings.theme = theme_name
+
+        # Apply stylesheet to whole app
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(get_theme_stylesheet(theme_name))
+        else:
+            self.setStyleSheet(get_theme_stylesheet(theme_name))
+
+        # Update custom widgets
+        if hasattr(self, "mic_meter") and self.mic_meter:
+            self.mic_meter.set_theme(theme_name)
+        if hasattr(self, "spk_meter") and self.spk_meter:
+            self.spk_meter.set_theme(theme_name)
+        if hasattr(self, "tag_selector") and self.tag_selector:
+            self.tag_selector.set_theme(theme_name)
+        if hasattr(self, "hud") and self.hud:
+            self.hud.set_theme(theme_name)
+
+        # Update toolbar button text
+        if hasattr(self, "theme_toggle_btn") and self.theme_toggle_btn:
+            self.theme_toggle_btn.setText("🌙 Dark" if theme_name == "dark" else "☀️ Light")
+
+        # Update preferences combo
+        if hasattr(self, "pref_theme_combo") and self.pref_theme_combo:
+            self.pref_theme_combo.blockSignals(True)
+            t_idx = self.pref_theme_combo.findData(theme_name)
+            if t_idx >= 0:
+                self.pref_theme_combo.setCurrentIndex(t_idx)
+            self.pref_theme_combo.blockSignals(False)
+
+        self._update_copilot_toggle_state()
+        self._update_recording_controls_visibility()
+        self._log(f"Color theme changed to: {theme_name.upper()}")
+
+    def _toggle_theme_btn_clicked(self) -> None:
+        """Toggles between Dark and Light mode from top toolbar."""
+        new_theme = "light" if self.settings.theme == "dark" else "dark"
+        self._set_theme(new_theme)
+
+    def _on_pref_theme_changed(self, index: int) -> None:
+        """Handles theme dropdown selection in preferences tab."""
+        theme_name = self.pref_theme_combo.currentData()
+        if theme_name and theme_name != self.settings.theme:
+            self._set_theme(theme_name)
 
     def _open_windows_captions_settings(self) -> None:
         """Opens Windows Accessibility Captions settings or launches Live Captions."""
@@ -2149,7 +2221,8 @@ class MainWindow(QMainWindow):
             self.hud = CopilotDashboardWidget(
                 self.copilot_memory, 
                 self.copilot_agent,
-                initial_opacity=self.settings.hud_opacity
+                initial_opacity=self.settings.hud_opacity,
+                theme=self.settings.theme
             )
             self.hud.meeting_mode_changed.connect(self._on_hud_meeting_mode_changed)
             self.hud.asr_provider_changed.connect(self._on_hud_asr_provider_changed)

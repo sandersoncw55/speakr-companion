@@ -78,7 +78,8 @@ class Settings:
         "privacy_mode": False,       # Locks ASR to Local CPU and LLM to Ollama/offline
         "copilot_cadence_seconds": 35,
         "hud_opacity": 0.92,
-        "custom_quick_prompts": []
+        "custom_quick_prompts": [],
+        "theme": "dark"
     }
 
     def __init__(self):
@@ -508,5 +509,14 @@ class Settings:
     @custom_quick_prompts.setter
     def custom_quick_prompts(self, val: List[Dict[str, str]]) -> None:
         self.data["custom_quick_prompts"] = val
+        self.save()
+
+    @property
+    def theme(self) -> str:
+        return self.data.get("theme", "dark")
+
+    @theme.setter
+    def theme(self, val: str) -> None:
+        self.data["theme"] = val
         self.save()
 

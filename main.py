@@ -23,14 +23,14 @@ def main():
     app = QApplication(sys.argv)
     app.setWindowIcon(get_app_icon())
     
-    # Apply Global Dark Slate Theme across all windows, tabs, tables, and dialogs
-    app.setStyleSheet(GLOBAL_APP_STYLESHEET)
-    
     # Ensure app doesn't exit when main window is hidden (minimized to tray)
     app.setQuitOnLastWindowClosed(False)
 
     # Initialize Core Components
     settings = Settings()
+    from gui.theme import get_theme_stylesheet
+    app.setStyleSheet(get_theme_stylesheet(settings.theme))
+    
     from core.storage import RecordingsManager
     storage = RecordingsManager(settings)
     recorder = AudioRecorder()

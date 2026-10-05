@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 from core.config import get_app_icon, Settings
 from core.copilot.memory import CopilotMemory, SuggestedQuestion, FollowUpItem
+from gui.theme import get_theme_palette
 
 class CopilotSignals(QObject):
     """Thread-safe Qt signals bridging background audio/agent workers to GUI."""
@@ -24,23 +25,29 @@ class TwoLineNoteEdit(QPlainTextEdit):
     """Multi-line note input that submits on Enter and inserts newline on Shift+Enter."""
     enter_pressed = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, theme: str = "dark", parent=None):
         super().__init__(parent)
+        self.theme = theme
         self.setFixedHeight(44)
         self.setPlaceholderText("+ Add custom note or context... (Enter to submit, Shift+Enter for newline)")
-        self.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: #0f172a;
-                border: 1px solid #334155;
+        self.set_theme(theme)
+
+    def set_theme(self, theme: str):
+        self.theme = theme
+        p = get_theme_palette(theme)
+        self.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {p['bg_input']};
+                border: 1px solid {p['border_subtle']};
                 border-radius: 4px;
                 padding: 4px 6px;
-                color: #f8fafc;
+                color: {p['text_primary']};
                 font-size: 12px;
                 line-height: 1.2;
-            }
-            QPlainTextEdit:focus {
-                border: 1px solid #38bdf8;
-            }
+            }}
+            QPlainTextEdit:focus {{
+                border: 1px solid {p['border_focus']};
+            }}
         """)
 
     def keyPressEvent(self, event: QKeyEvent):
@@ -55,12 +62,15 @@ class TwoLineNoteEdit(QPlainTextEdit):
 class QuestionItemWidget(QWidget):
     """Widget rendering an individual suggested question with Copy, Mark-Asked, and Dismiss actions."""
 
-    def __init__(self, question: SuggestedQuestion, on_copy_cb, on_asked_cb, on_dismiss_cb):
+    def __init__(self, question: SuggestedQuestion, on_copy_cb, on_asked_cb, on_dismiss_cb, theme: str = "dark"):
         super().__init__()
         self.question = question
+        self.theme = theme
         self.on_copy_cb = on_copy_cb
         self.on_asked_cb = on_asked_cb
         self.on_dismiss_cb = on_dismiss_cb
+        p = get_theme_palette(theme)
+        is_light = (theme == "light")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
@@ -69,14 +79,14 @@ class QuestionItemWidget(QWidget):
         # Question text
         self.label = QLabel(question.question)
         self.label.setWordWrap(True)
-        self.label.setStyleSheet("color: #f8fafc; font-size: 12px; font-weight: 600; line-height: 1.3;")
+        self.label.setStyleSheet(f"color: {p['text_primary']}; font-size: 12px; font-weight: 600; line-height: 1.3;")
         layout.addWidget(self.label)
 
         # Rationale sub-text if present
         if question.rationale:
             self.rationale_label = QLabel(f"💡 {question.rationale}")
             self.rationale_label.setWordWrap(True)
-            self.rationale_label.setStyleSheet("color: #94a3b8; font-size: 11px; font-style: italic;")
+            self.rationale_label.setStyleSheet(f"color: {p['text_muted']}; font-size: 11px; font-style: italic;")
             layout.addWidget(self.rationale_label)
 
         # Actions Layout
@@ -86,12 +96,12 @@ class QuestionItemWidget(QWidget):
         # Copy button
         self.copy_btn = QPushButton("📋 Copy")
         self.copy_btn.setToolTip("Copy question to clipboard")
-        self.copy_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #334155; color: #f8fafc; border: 1px solid #475569;
+        self.copy_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {p['bg_surface'] if is_light else '#252b36'}; color: {p['text_primary']}; border: 1px solid {p['border_medium']};
                 border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 500;
-            }
-            QPushButton:hover { background-color: #475569; }
+            }}
+            QPushButton:hover {{ background-color: {p['bg_hover'] if is_light else '#333a48'}; }}
         """)
         self.copy_btn.clicked.connect(lambda: self.on_copy_cb(self.question.question))
         btn_layout.addWidget(self.copy_btn)
@@ -99,12 +109,12 @@ class QuestionItemWidget(QWidget):
         # Mark Asked button
         self.asked_btn = QPushButton("✔ Asked")
         self.asked_btn.setToolTip("Mark as asked during meeting")
-        self.asked_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #065f46; color: #a7f3d0; border: 1px solid #059669;
+        self.asked_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {p['accent_emerald_bg']}; color: {'#065f46' if is_light else '#a7f3d0'}; border: 1px solid {p['accent_emerald']};
                 border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: bold;
-            }
-            QPushButton:hover { background-color: #047857; }
+            }}
+            QPushButton:hover {{ opacity: 0.9; }}
         """)
         self.asked_btn.clicked.connect(lambda: self.on_asked_cb(self.question.question))
         btn_layout.addWidget(self.asked_btn)
@@ -114,12 +124,12 @@ class QuestionItemWidget(QWidget):
         # Dismiss button
         self.dismiss_btn = QPushButton("✕ Dismiss")
         self.dismiss_btn.setToolTip("Dismiss this suggestion")
-        self.dismiss_btn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent; color: #94a3b8; border: 1px solid #334155;
+        self.dismiss_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent; color: {p['text_muted']}; border: 1px solid {p['border_subtle']};
                 border-radius: 4px; padding: 2px 6px; font-size: 11px;
-            }
-            QPushButton:hover { background-color: #1e293b; color: #ef4444; border-color: #7f1d1d; }
+            }}
+            QPushButton:hover {{ background-color: {p['bg_surface']}; color: {p['accent_coral']}; border-color: {p['accent_coral']}; }}
         """)
         self.dismiss_btn.clicked.connect(lambda: self.on_dismiss_cb(self.question.question))
         btn_layout.addWidget(self.dismiss_btn)
@@ -130,12 +140,15 @@ class QuestionItemWidget(QWidget):
 class FollowUpItemWidget(QWidget):
     """Widget rendering an individual action item / follow-up with Copy, Done, and Dismiss actions."""
 
-    def __init__(self, item: FollowUpItem, on_copy_cb, on_done_cb, on_dismiss_cb):
+    def __init__(self, item: FollowUpItem, on_copy_cb, on_done_cb, on_dismiss_cb, theme: str = "dark"):
         super().__init__()
         self.item = item
+        self.theme = theme
         self.on_copy_cb = on_copy_cb
         self.on_done_cb = on_done_cb
         self.on_dismiss_cb = on_dismiss_cb
+        p = get_theme_palette(theme)
+        is_light = (theme == "light")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
@@ -144,13 +157,13 @@ class FollowUpItemWidget(QWidget):
         # Task text
         self.label = QLabel(item.task)
         self.label.setWordWrap(True)
-        self.label.setStyleSheet("color: #f8fafc; font-size: 12px; font-weight: 600; line-height: 1.3;")
+        self.label.setStyleSheet(f"color: {p['text_primary']}; font-size: 12px; font-weight: 600; line-height: 1.3;")
         layout.addWidget(self.label)
 
         # Owner tag
         owner_str = item.owner if item.owner and item.owner != "Unassigned" else "Unassigned"
         self.owner_label = QLabel(f"👤 Owner: {owner_str}")
-        self.owner_label.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 500;")
+        self.owner_label.setStyleSheet(f"color: {p['accent_cyan']}; font-size: 11px; font-weight: 500;")
         layout.addWidget(self.owner_label)
 
         # Actions Layout
@@ -160,12 +173,12 @@ class FollowUpItemWidget(QWidget):
         # Copy button
         self.copy_btn = QPushButton("📋 Copy")
         self.copy_btn.setToolTip("Copy action item to clipboard")
-        self.copy_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #334155; color: #f8fafc; border: 1px solid #475569;
+        self.copy_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {p['bg_surface'] if is_light else '#252b36'}; color: {p['text_primary']}; border: 1px solid {p['border_medium']};
                 border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 500;
-            }
-            QPushButton:hover { background-color: #475569; }
+            }}
+            QPushButton:hover {{ background-color: {p['bg_hover'] if is_light else '#333a48'}; }}
         """)
         self.copy_btn.clicked.connect(lambda: self.on_copy_cb(self.item.task))
         btn_layout.addWidget(self.copy_btn)
@@ -173,12 +186,12 @@ class FollowUpItemWidget(QWidget):
         # Done button
         self.done_btn = QPushButton("✔ Done")
         self.done_btn.setToolTip("Mark as completed")
-        self.done_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0284c7; color: #e0f2fe; border: 1px solid #0369a1;
+        self.done_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {p['accent_indigo_bg'] if is_light else '#0284c7'}; color: {'#3730a3' if is_light else '#e0f2fe'}; border: 1px solid {p['accent_indigo'] if is_light else '#0369a1'};
                 border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: bold;
-            }
-            QPushButton:hover { background-color: #0369a1; }
+            }}
+            QPushButton:hover {{ opacity: 0.9; }}
         """)
         self.done_btn.clicked.connect(lambda: self.on_done_cb(self.item.task))
         btn_layout.addWidget(self.done_btn)
@@ -188,12 +201,12 @@ class FollowUpItemWidget(QWidget):
         # Dismiss button
         self.dismiss_btn = QPushButton("✕ Dismiss")
         self.dismiss_btn.setToolTip("Dismiss this item")
-        self.dismiss_btn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent; color: #94a3b8; border: 1px solid #334155;
+        self.dismiss_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent; color: {p['text_muted']}; border: 1px solid {p['border_subtle']};
                 border-radius: 4px; padding: 2px 6px; font-size: 11px;
-            }
-            QPushButton:hover { background-color: #1e293b; color: #ef4444; border-color: #7f1d1d; }
+            }}
+            QPushButton:hover {{ background-color: {p['bg_surface']}; color: {p['accent_coral']}; border-color: {p['accent_coral']}; }}
         """)
         self.dismiss_btn.clicked.connect(lambda: self.on_dismiss_cb(self.item.task))
         btn_layout.addWidget(self.dismiss_btn)
@@ -209,10 +222,11 @@ class CopilotDashboardWidget(QWidget):
     asr_provider_changed = Signal(str)
     enable_copilot_requested = Signal()
 
-    def __init__(self, memory: CopilotMemory, copilot_agent, initial_opacity: float = 0.92, parent=None):
+    def __init__(self, memory: CopilotMemory, copilot_agent, initial_opacity: float = 0.92, theme: str = "dark", parent=None):
         super().__init__(parent)
         self.memory = memory
         self.agent = copilot_agent
+        self.theme = theme
         self.signals = CopilotSignals()
 
         # Connect thread-safe signals
@@ -854,12 +868,66 @@ class CopilotDashboardWidget(QWidget):
         self.memory.mark_followup_dismissed(task_text)
         self._render_follow_ups()
 
+    def set_theme(self, theme: str):
+        """Update styling across all Copilot sub-widgets and views."""
+        self.theme = theme
+        p = get_theme_palette(theme)
+        is_light = (theme == "light")
+
+        # Update header and quick actions
+        self.status_title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {p['accent_cyan']}; letter-spacing: 0.5px;")
+        
+        # Update inputs
+        self.adhoc_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {p['bg_input']}; border: 1px solid {p['border_subtle']}; border-radius: 4px;
+                padding: 4px 8px; color: {p['text_primary']}; font-size: 12px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {p['border_focus']}; }}
+        """)
+        self.add_note_input.set_theme(theme)
+
+        # Update summary and notes
+        self.summary_browser.setStyleSheet(f"""
+            QTextBrowser {{
+                background-color: {p['bg_input']};
+                border: 1px solid {p['border_subtle']};
+                border-radius: 4px;
+                color: {p['text_primary']};
+                font-size: 12px;
+                line-height: 1.4;
+                padding: 6px;
+            }}
+        """)
+        self.notes_list.setStyleSheet(f"""
+            QListWidget {{ background-color: {p['bg_input']}; border: 1px solid {p['border_subtle']}; border-radius: 4px; }}
+            QListWidget::item {{
+                background-color: {p['bg_surface']}; border: 1px solid {p['border_subtle']}; border-radius: 4px;
+                padding: 3px 6px; margin: 2px; color: {p['text_secondary']}; font-size: 11px;
+            }}
+        """)
+
+        # Update transcript feed
+        self.ticker_box.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {p['bg_input']}; border: 1px solid {p['border_subtle']}; border-radius: 4px;
+                color: {p['text_primary']}; font-size: 11px; font-family: 'Consolas', 'Courier New', monospace;
+                line-height: 1.4;
+            }}
+        """)
+
+        # Re-render dynamic list items
+        self._render_questions()
+        self._render_follow_ups()
+        self._update_summary_browser_text()
+
     def _on_transcription_gui(self, channel: str, text: str, timestamp: float, turn_id: int):
         """Append to memory and update ticker display."""
         turn = self.memory.add_transcript(channel, text, timestamp, turn_id)
+        p = get_theme_palette(self.theme)
         
-        color = "#38bdf8" if channel == "you" else ("#a78bfa" if channel == "participants" else "#34d399")
-        entry_html = f"<div style='margin-bottom: 4px;'><span style='color: {color}; font-weight: bold;'>{turn.speaker_label} ({turn.formatted_time}):</span> <span style='color: #e2e8f0;'>{turn.text}</span></div>"
+        color = p['accent_cyan'] if channel == "you" else (p['accent_purple'] if channel == "participants" else p['accent_emerald'])
+        entry_html = f"<div style='margin-bottom: 4px;'><span style='color: {color}; font-weight: bold;'>{turn.speaker_label} ({turn.formatted_time}):</span> <span style='color: {p['text_primary']};'>{turn.text}</span></div>"
         
         self.ticker_box.append(entry_html)
         if self.auto_scroll_chk.isChecked():
@@ -903,7 +971,8 @@ class CopilotDashboardWidget(QWidget):
                 q,
                 on_copy_cb=self._on_copy_text,
                 on_asked_cb=self._on_mark_asked,
-                on_dismiss_cb=self._on_dismiss_question
+                on_dismiss_cb=self._on_dismiss_question,
+                theme=self.theme
             )
             item.setSizeHint(widget.sizeHint())
             self.questions_list.addItem(item)
@@ -924,7 +993,8 @@ class CopilotDashboardWidget(QWidget):
                 it,
                 on_copy_cb=self._on_copy_text,
                 on_done_cb=self._on_mark_followup_done,
-                on_dismiss_cb=self._on_dismiss_followup
+                on_dismiss_cb=self._on_dismiss_followup,
+                theme=self.theme
             )
             item.setSizeHint(widget.sizeHint())
             self.follow_ups_list.addItem(item)
@@ -941,20 +1011,21 @@ class CopilotDashboardWidget(QWidget):
         topic = self.memory.rolling_summary.get("topic", "")
         exec_sum = self.memory.rolling_summary.get("executive_summary", "")
         decisions = self.memory.rolling_summary.get("key_decisions", [])
+        p = get_theme_palette(self.theme)
 
         html_parts = []
         if topic:
-            html_parts.append(f"<div style='font-size: 13px; font-weight: bold; color: #38bdf8; margin-bottom: 6px;'>📌 Agenda: {topic}</div>")
+            html_parts.append(f"<div style='font-size: 13px; font-weight: bold; color: {p['accent_cyan']}; margin-bottom: 6px;'>📌 Agenda: {topic}</div>")
         
-        html_parts.append("<div style='font-size: 12px; font-weight: bold; color: #94a3b8; margin-bottom: 3px;'>EXECUTIVE SUMMARY:</div>")
+        html_parts.append(f"<div style='font-size: 12px; font-weight: bold; color: {p['text_muted']}; margin-bottom: 3px;'>EXECUTIVE SUMMARY:</div>")
         if exec_sum:
-            html_parts.append(f"<div style='color: #f8fafc; font-size: 12px; line-height: 1.4; margin-bottom: 8px;'>{exec_sum}</div>")
+            html_parts.append(f"<div style='color: {p['text_primary']}; font-size: 12px; line-height: 1.4; margin-bottom: 8px;'>{exec_sum}</div>")
         else:
-            html_parts.append("<div style='color: #64748b; font-style: italic; font-size: 11px; margin-bottom: 8px;'>Summary will synthesize as conversation progresses...</div>")
+            html_parts.append(f"<div style='color: {p['text_muted']}; font-style: italic; font-size: 11px; margin-bottom: 8px;'>Summary will synthesize as conversation progresses...</div>")
 
         if decisions:
-            html_parts.append("<div style='font-size: 12px; font-weight: bold; color: #34d399; margin-bottom: 3px;'>KEY DECISIONS & CONSENSUS:</div>")
-            html_parts.append("<ul style='margin-top: 2px; margin-bottom: 6px; padding-left: 18px; color: #cbd5e1;'>")
+            html_parts.append(f"<div style='font-size: 12px; font-weight: bold; color: {p['accent_emerald']}; margin-bottom: 3px;'>KEY DECISIONS & CONSENSUS:</div>")
+            html_parts.append(f"<ul style='margin-top: 2px; margin-bottom: 6px; padding-left: 18px; color: {p['text_secondary']};'>")
             for d in decisions:
                 html_parts.append(f"<li style='margin-bottom: 2px;'>{d}</li>")
             html_parts.append("</ul>")

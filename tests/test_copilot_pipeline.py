@@ -849,6 +849,94 @@ def test_history_icon_buttons_and_model_fetch_ui():
 
     print("[OK] History Table Icon Buttons & Model Fetch UI passed.")
 
+
+def test_light_and_dark_theme_system():
+    """Verifies color tokens, stylesheet generation, VolumeMeter channels, and dynamic theme switching."""
+    print("Testing Light & Dark Theme System and Palettes...")
+    import tempfile
+    from PySide6.QtWidgets import QApplication
+    from core.config import Settings
+    from core.storage import RecordingsManager
+    from core.recorder import AudioRecorder
+    from core.uploader import AudioUploader
+    from gui.main_window import MainWindow
+    from gui.theme import get_theme_palette, get_theme_stylesheet, DARK_PALETTE, LIGHT_PALETTE
+    from gui.widgets import VolumeMeter, TagSelector
+    
+    # 1. Palette tokens
+    dark_p = get_theme_palette("dark")
+    light_p = get_theme_palette("light")
+    assert dark_p["accent_cyan"] == "#22d3ee"
+    assert dark_p["accent_purple"] == "#c084fc"
+    assert light_p["accent_cyan"] == "#0284c7"
+    assert light_p["accent_purple"] == "#7c3aed"
+    assert dark_p["bg_window"] == "#0e1015"
+    assert light_p["bg_window"] == "#f8fafc"
+    
+    # 2. Stylesheet generation
+    dark_qss = get_theme_stylesheet("dark")
+    light_qss = get_theme_stylesheet("light")
+    assert "#0e1015" in dark_qss
+    assert "#22d3ee" in dark_qss
+    assert "#f8fafc" in light_qss
+    assert "#0284c7" in light_qss
+    
+    # 3. Widget theme switching
+    app = QApplication.instance() or QApplication([])
+    mic_meter = VolumeMeter("Microphone", channel_type="mic", theme="dark")
+    spk_meter = VolumeMeter("Speakers", channel_type="system", theme="dark")
+    tag_sel = TagSelector(theme="dark")
+    
+    assert mic_meter.channel_type == "mic"
+    assert spk_meter.channel_type == "system"
+    assert mic_meter.theme == "dark"
+    
+    mic_meter.set_theme("light")
+    spk_meter.set_theme("light")
+    tag_sel.set_theme("light")
+    assert mic_meter.theme == "light"
+    assert spk_meter.theme == "light"
+    assert tag_sel.theme == "light"
+    
+    # 4. MainWindow dynamic theme toggle
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cfg = Settings()
+        cfg.settings_file = Path(tmpdir) / "settings.json"
+        cfg.data = dict(Settings.DEFAULT_SETTINGS)
+        cfg.data["local_recordings_dir"] = tmpdir
+        cfg.theme = "dark"
+        
+        storage = RecordingsManager(cfg)
+        rec = AudioRecorder()
+        upl = AudioUploader(cfg, storage)
+        w = MainWindow(cfg, rec, upl, storage)
+        
+        try:
+            assert w.settings.theme == "dark"
+            assert "Dark" in w.theme_toggle_btn.text()
+            
+            # Click quick theme toggle
+            w.theme_toggle_btn.click()
+            assert w.settings.theme == "light"
+            assert "Light" in w.theme_toggle_btn.text()
+            assert w.mic_meter.theme == "light"
+            assert w.hud.theme == "light"
+            
+            # Click toggle again back to dark
+            w.theme_toggle_btn.click()
+            assert w.settings.theme == "dark"
+            assert "Dark" in w.theme_toggle_btn.text()
+            assert w.mic_meter.theme == "dark"
+            assert w.hud.theme == "dark"
+        finally:
+            if w.hud:
+                w.hud.close()
+            rec.terminate()
+            w.close()
+
+    print("[OK] Light & Dark Theme System passed.")
+
+
 if __name__ == "__main__":
     test_memory_and_scratchpad()
     test_prompts_and_tag_personas()
@@ -866,4 +954,5 @@ if __name__ == "__main__":
     test_hud_clear_on_start_and_manual_reset()
     test_fetch_lm_studio_models_function()
     test_history_icon_buttons_and_model_fetch_ui()
+    test_light_and_dark_theme_system()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
