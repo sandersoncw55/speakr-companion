@@ -168,71 +168,65 @@ def test_offline_copilot_engine():
     print("[OK] OfflineExtractiveEngine and CopilotAgent offline fallback passed.")
 
 def test_hud_controls_and_splitter():
-    print("Testing FloatingCopilotHUD and 3-way resizable splitter...")
+    print("Testing CopilotDashboardWidget and 2-column / 3-pane responsive layout...")
     from PySide6.QtWidgets import QApplication
-    from gui.hud import FloatingCopilotHUD, TwoLineNoteEdit
+    from gui.hud import CopilotDashboardWidget, TwoLineNoteEdit
     
     app = QApplication.instance() or QApplication([])
     mem = CopilotMemory()
     from core.copilot.agent import CopilotAgent
     agent = CopilotAgent(mem, on_results_callback=lambda r: None)
     
-    hud = FloatingCopilotHUD(mem, agent, initial_opacity=0.85)
-    
-    # Opacity check
-    assert abs(hud.windowOpacity() - 0.85) < 0.01
+    widget = CopilotDashboardWidget(mem, agent)
     
     # Mode combo check
-    assert hud.mode_combo.count() == 3
-    assert hud.mode_combo.findData("virtual") >= 0
-    assert hud.mode_combo.findData("in_person") >= 0
-    assert hud.mode_combo.findData("hybrid") >= 0
+    assert widget.mode_combo.count() == 3
+    assert widget.mode_combo.findData("virtual") >= 0
+    assert widget.mode_combo.findData("in_person") >= 0
+    assert widget.mode_combo.findData("hybrid") >= 0
     
     # ASR combo check
-    assert hud.asr_combo.count() == 4
-    assert hud.asr_combo.findData("local") >= 0
-    assert hud.asr_combo.findData("mac_lan") >= 0
+    assert widget.asr_combo.count() == 4
+    assert widget.asr_combo.findData("local") >= 0
+    assert widget.asr_combo.findData("mac_lan") >= 0
     
-    # 3-way Splitter check: 3 widgets (Questions, Scratchpad, Transcript)
-    assert hud.splitter.count() == 3
+    # Responsive Splitter check
+    assert widget.splitter.count() == 2
+    
+    # Quick action buttons check
+    assert hasattr(widget, "btn_ask")
+    assert hasattr(widget, "btn_catchup")
+    assert hasattr(widget, "btn_owners")
+    assert hasattr(widget, "btn_risks")
+    assert hasattr(widget, "btn_jargon")
+    assert hasattr(widget, "adhoc_input")
+    assert hasattr(widget, "copy_md_btn")
     
     # TwoLineNoteEdit check
-    assert isinstance(hud.add_note_input, TwoLineNoteEdit)
-    hud.add_note_input.setPlainText("Test custom note item")
-    hud._add_custom_note()
+    assert isinstance(widget.add_note_input, TwoLineNoteEdit)
+    widget.add_note_input.setPlainText("Test custom note item")
+    widget._add_custom_note()
     assert "Test custom note item" in mem.live_notes
     
-    # Pill mode toggle check
-    hud.show()
-    assert hud.is_pill_mode is False
-    hud._toggle_pill_mode()
-    assert hud.is_pill_mode is True
-    assert hud.pill_widget.isVisible() is True
-    assert hud.full_widget.isVisible() is False
-    
-    # Restore from pill mode
-    hud._toggle_pill_mode()
-    assert hud.is_pill_mode is False
-    assert hud.full_widget.isVisible() is True
-    
-    # Test HUD questions count badge and clear button
+    # Test questions count badge and clear button
+    widget.show()
     mem.set_suggested_questions([
         {"question": "HUD Question 1", "rationale": "r1"},
         {"question": "HUD Question 2", "rationale": "r2"}
     ])
-    hud._render_questions()
-    assert hud.q_count_badge.isVisible() is True
-    assert hud.q_clear_btn.isVisible() is True
-    assert "2 pending" in hud.q_count_badge.text()
+    widget._render_questions()
+    assert widget.q_count_badge.isVisible() is True
+    assert widget.q_clear_btn.isVisible() is True
+    assert "2 pending" in widget.q_count_badge.text()
     
     # Test Clear button
-    hud._clear_suggested_questions()
-    assert hud.q_count_badge.isVisible() is False
-    assert hud.q_clear_btn.isVisible() is False
+    widget._clear_suggested_questions()
+    assert widget.q_count_badge.isVisible() is False
+    assert widget.q_clear_btn.isVisible() is False
     assert len(mem.suggested_questions) == 0
 
-    hud.close()
-    print("[OK] FloatingCopilotHUD and 3-way resizable splitter passed.")
+    widget.close()
+    print("[OK] CopilotDashboardWidget and 2-column / 3-pane responsive layout passed.")
 
 def test_suggested_questions_accumulation():
     print("Testing Suggested Questions Accumulation & Deduplication across cycles...")
@@ -495,8 +489,8 @@ def test_notes_upload_and_summarization_linkage():
 
     print("[OK] Notes Upload and Summarization Linkage passed.")
 
-def test_hud_toggle_visibility_button():
-    print("Testing Open/Hide HUD Visibility Toggle Button...")
+def test_static_control_bar_and_dashboard_tabs():
+    print("Testing Static Control Bar Contextual Visibility and Dashboard Sub-Tabs...")
     from PySide6.QtWidgets import QApplication
     from core.config import Settings
     from core.recorder import AudioRecorder
@@ -510,36 +504,77 @@ def test_hud_toggle_visibility_button():
     stor = RecordingsManager(s)
     up = AudioUploader(s, stor)
     w = MainWindow(s, rec, up, stor)
+    w.show()
 
     try:
-        # Initial state: HUD not opened yet, button says Open HUD
-        assert "Open HUD" in w.open_hud_btn.text()
-        assert w.hud is None or not w.hud.isVisible()
+        # 1. Top Static Control Bar & initial Idle state
+        assert hasattr(w, "static_control_frame")
+        assert w.status_label.text() == "STATUS: IDLE"
+        assert w.record_btn.isVisible() is True
+        assert "Start Recording" in w.record_btn.text()
+        assert w.pause_btn.isVisible() is False
+        assert w.skip_cooldown_btn.isVisible() is False
+        assert w.upload_last_btn.isVisible() is True
 
-        # 1. Click / trigger toggle: should open HUD and button text becomes Hide HUD
+        # 2. Dashboard Sub-Tabs
+        assert hasattr(w, "dashboard_subtabs")
+        assert w.dashboard_subtabs.count() == 2
+        assert w.dashboard_subtabs.tabText(0) == "Audio & Session Monitor"
+        assert w.dashboard_subtabs.tabText(1) == "Live Meeting Copilot"
+        assert w.copilot_widget is not None
+        assert w.hud is w.copilot_widget
+
+        # 3. Simulate Recording state
+        w.recorder.is_recording = True
+        w.recorder.is_paused = False
+        w._update_recording_controls_visibility()
+        assert "Stop Recording" in w.record_btn.text()
+        assert w.pause_btn.isVisible() is True
+        assert "Pause" in w.pause_btn.text()
+        assert w.upload_last_btn.isVisible() is False
+        assert w.skip_cooldown_btn.isVisible() is False
+
+        # 4. Simulate Paused state
+        w.recorder.is_paused = True
+        w._update_recording_controls_visibility()
+        assert "Stop Recording" in w.record_btn.text()
+        assert w.pause_btn.isVisible() is True
+        assert "Resume" in w.pause_btn.text()
+        assert w.upload_last_btn.isVisible() is False
+
+        # 5. Simulate Cooldown state
+        w.recorder.is_recording = False
+        w.recorder.is_paused = False
+        w.cooldown_remaining = 45
+        w._update_recording_controls_visibility()
+        assert w.record_btn.isEnabled() is False
+        assert "Cooldown (45s)" in w.record_btn.text()
+        assert w.pause_btn.isVisible() is False
+        assert w.skip_cooldown_btn.isVisible() is True
+        assert w.upload_last_btn.isVisible() is False
+
+        # 6. Skip Cooldown -> Back to Idle
+        w._skip_cooldown()
+        assert w.status_label.text() == "STATUS: IDLE"
+        assert w.record_btn.isEnabled() is True
+        assert "Start Recording" in w.record_btn.text()
+        assert w.pause_btn.isVisible() is False
+        assert w.skip_cooldown_btn.isVisible() is False
+        assert w.upload_last_btn.isVisible() is True
+
+        # 7. Test _toggle_copilot_hud switches tab
         w._toggle_copilot_hud()
-        assert w.hud is not None
-        assert w.hud.isVisible() is True
-        assert "Hide HUD" in w.open_hud_btn.text()
-
-        # 2. Click / trigger toggle again: should hide HUD and button text becomes Open HUD
-        w._toggle_copilot_hud()
-        assert w.hud.isVisible() is False
-        assert "Open HUD" in w.open_hud_btn.text()
-
-        # 3. Direct show / hide on HUD: button updates reactively
-        w.hud.show()
-        assert "Hide HUD" in w.open_hud_btn.text()
-
-        w.hud.hide()
-        assert "Open HUD" in w.open_hud_btn.text()
+        assert w.dashboard_subtabs.currentWidget() == w.copilot_widget
     finally:
         if w.hud:
             w.hud.close()
         rec.terminate()
         w.close()
 
-    print("[OK] Open/Hide HUD Visibility Toggle Button passed.")
+    print("[OK] Static Control Bar Contextual Visibility and Dashboard Sub-Tabs passed.")
+
+# Backward compatibility alias
+test_hud_toggle_visibility_button = test_static_control_bar_and_dashboard_tabs
 
 def test_hud_clear_on_start_and_manual_reset():
     print("Testing HUD Clear on Start Recording & Manual Reset...")

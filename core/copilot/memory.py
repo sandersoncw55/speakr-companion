@@ -198,13 +198,23 @@ class CopilotMemory:
 
     def get_prompt_context(self) -> str:
         """Builds structured context block for the LLM agent."""
-        recent_tx = self.get_recent_transcript(seconds=180.0)
+        recent_tx = self.get_recent_transcript(seconds=240.0)
         scratchpad_md = self.get_scratchpad_markdown()
         
-        return f"""=== RECENT CONVERSATION (Last 2-3 Minutes) ===
+        with self.lock:
+            already_addressed = [
+                q.question for q in self.suggested_questions if q.status in ("asked", "dismissed")
+            ]
+        
+        addressed_str = "\n".join(f"- {q}" for q in already_addressed) if already_addressed else "None yet."
+
+        return f"""=== RECENT DIALOGUE TURNS (Note: '[You]' is the user; '[Call Participants]' are remote speakers) ===
 {recent_tx or '[No recent speech recorded]'}
 
-=== CURRENT MEETING SCRATCHPAD & ADDRESSED POINTS ===
+=== PREVIOUSLY ASKED OR DISMISSED QUESTIONS (DO NOT SUGGEST THESE AGAIN) ===
+{addressed_str}
+
+=== CURRENT MEETING SCRATCHPAD & LIVE NOTES ===
 {scratchpad_md}
 """
 

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QPlainTextEdit, QGroupBox, QRadioButton, 
     QMessageBox, QDialog, QDialogButtonBox, QFormLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QTextBrowser
+    QTextBrowser, QFrame
 )
 from PySide6.QtGui import QIcon, QFont, QColor
 
@@ -25,7 +25,7 @@ from core.copilot.segmenter import VADSegmenter, AudioSegment
 from core.copilot.memory import CopilotMemory
 from core.copilot.agent import CopilotAgent, fetch_lm_studio_models
 from core.asr.manager import ASRManager
-from gui.hud import FloatingCopilotHUD
+from gui.hud import FloatingCopilotHUD, CopilotDashboardWidget
 
 class Signaler(QObject):
     """Bridge object to emit thread-safe signals for GUI updates."""
@@ -199,7 +199,8 @@ class MainWindow(QMainWindow):
         self.current_recording_mode: str = "manual"
         
         # Live Copilot session state
-        self.hud: Optional[FloatingCopilotHUD] = None
+        self.hud: Optional[CopilotDashboardWidget] = None
+        self.copilot_widget: Optional[CopilotDashboardWidget] = None
         self.copilot_memory: Optional[CopilotMemory] = None
         self.copilot_agent: Optional[CopilotAgent] = None
         self.vad_segmenter: Optional[VADSegmenter] = None
@@ -207,7 +208,8 @@ class MainWindow(QMainWindow):
         
         self.setWindowTitle("Speakr Windows Companion")
         self.setWindowIcon(get_app_icon())
-        self.setMinimumSize(550, 650)
+        self.resize(920, 680)
+        self.setMinimumSize(780, 600)
         
         # Thread-safe signaler
         self.signaler = Signaler()
@@ -259,6 +261,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(6)
+
+        # Static Top Horizontal Control Bar
+        self._setup_static_control_bar(main_layout)
         
         self.tabs = QTabWidget(self)
         main_layout.addWidget(self.tabs)
@@ -280,48 +287,207 @@ class MainWindow(QMainWindow):
         self._setup_preferences_tab()
         self._setup_logs_tab()
 
-    def _setup_dashboard_tab(self) -> None:
-        layout = QVBoxLayout(self.dashboard_tab)
-        
-        # Recording Status Card
-        status_group = QGroupBox("Recording Status")
-        status_layout = QHBoxLayout(status_group)
+        # Update controls visibility to initial idle state
+        self._update_recording_controls_visibility()
+
+    def _setup_static_control_bar(self, parent_layout: QVBoxLayout) -> None:
+        """Creates the persistent, single-row static control bar pinned at the top."""
+        self.static_control_frame = QFrame(self)
+        self.static_control_frame.setObjectName("staticControlBar")
+        self.static_control_frame.setStyleSheet("""
+            QFrame#staticControlBar {
+                background-color: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 6px;
+                padding: 4px 10px;
+            }
+        """)
+        bar_layout = QHBoxLayout(self.static_control_frame)
+        bar_layout.setContentsMargins(8, 4, 8, 4)
+        bar_layout.setSpacing(10)
+
+        # Status label
         self.status_label = QLabel("STATUS: IDLE")
-        self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2ecc71;")
-        status_layout.addWidget(self.status_label)
-        status_layout.addStretch()
-        layout.addWidget(status_group)
-        
-        # Recording controls
-        ctrl_layout = QHBoxLayout()
-        self.record_btn = QPushButton("Start Recording")
-        self.record_btn.setStyleSheet("background-color: #2ecc71; color: white; font-weight: bold; padding: 10px;")
+        self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #2ecc71;")
+        bar_layout.addWidget(self.status_label)
+
+        bar_layout.addStretch()
+
+        # Record Button
+        self.record_btn = QPushButton("⏺ Start Recording")
+        self.record_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #059669;
+                color: white;
+                font-weight: bold;
+                padding: 6px 14px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #047857;
+            }
+            QPushButton:disabled {
+                background-color: #475569;
+                color: #94a3b8;
+            }
+        """)
         self.record_btn.clicked.connect(self._toggle_recording)
-        ctrl_layout.addWidget(self.record_btn, 2)
-        
-        self.pause_btn = QPushButton("Pause")
-        self.pause_btn.setStyleSheet("background-color: #f1c40f; color: white; font-weight: bold; padding: 10px;")
-        self.pause_btn.setEnabled(False)
+        bar_layout.addWidget(self.record_btn)
+
+        # Pause / Resume Button
+        self.pause_btn = QPushButton("⏸ Pause")
+        self.pause_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d97706;
+                color: white;
+                font-weight: bold;
+                padding: 6px 14px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #b45309;
+            }
+            QPushButton:disabled {
+                background-color: #475569;
+                color: #94a3b8;
+            }
+        """)
         self.pause_btn.clicked.connect(self._toggle_pause)
-        ctrl_layout.addWidget(self.pause_btn, 1)
-        
-        self.upload_last_btn = QPushButton("Upload Last")
-        self.upload_last_btn.setStyleSheet("background-color: #3498db; color: white; font-weight: bold; padding: 10px;")
+        self.pause_btn.setVisible(False)
+        bar_layout.addWidget(self.pause_btn)
+
+        # Upload Last Button
+        self.upload_last_btn = QPushButton("☁️ Upload Last")
+        self.upload_last_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0284c7;
+                color: white;
+                font-weight: bold;
+                padding: 6px 14px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #0369a1;
+            }
+            QPushButton:disabled {
+                background-color: #334155;
+                color: #64748b;
+            }
+        """)
         self.upload_last_btn.setEnabled(False)
         self.upload_last_btn.clicked.connect(self._upload_last_recording)
-        ctrl_layout.addWidget(self.upload_last_btn, 1)
-        
-        self.skip_cooldown_btn = QPushButton("Skip Cooldown")
-        self.skip_cooldown_btn.setStyleSheet("background-color: #e67e22; color: white; font-weight: bold; padding: 10px;")
+        bar_layout.addWidget(self.upload_last_btn)
+
+        # Skip Cooldown Button
+        self.skip_cooldown_btn = QPushButton("⏩ Skip Cooldown")
+        self.skip_cooldown_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ea580c;
+                color: white;
+                font-weight: bold;
+                padding: 6px 14px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #c2410c;
+            }
+        """)
         self.skip_cooldown_btn.setVisible(False)
         self.skip_cooldown_btn.clicked.connect(self._skip_cooldown)
-        ctrl_layout.addWidget(self.skip_cooldown_btn, 1)
-        
-        layout.addLayout(ctrl_layout)
+        bar_layout.addWidget(self.skip_cooldown_btn)
 
-        # Meeting Mode & Live Copilot Bar
-        copilot_bar = QHBoxLayout()
-        copilot_bar.addWidget(QLabel("Meeting Mode:"))
+        parent_layout.addWidget(self.static_control_frame)
+
+    def _update_recording_controls_visibility(self) -> None:
+        """Contextually updates button visibility, labels, and styles across all states."""
+        is_rec = self.recorder.is_recording
+        is_paused = self.recorder.is_paused
+        in_cooldown = (self.cooldown_remaining > 0)
+
+        if is_rec:
+            # Active recording or paused
+            self.record_btn.setVisible(True)
+            self.record_btn.setEnabled(True)
+            self.record_btn.setText("⏹ Stop Recording")
+            self.record_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #dc2626; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 12px;
+                }
+                QPushButton:hover { background-color: #b91c1c; }
+            """)
+            self.pause_btn.setVisible(True)
+            self.pause_btn.setEnabled(True)
+            if is_paused:
+                self.pause_btn.setText("▶ Resume")
+                self.pause_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #059669; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 12px;
+                    }
+                    QPushButton:hover { background-color: #047857; }
+                """)
+            else:
+                self.pause_btn.setText("⏸ Pause")
+                self.pause_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #d97706; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 12px;
+                    }
+                    QPushButton:hover { background-color: #b45309; }
+                """)
+            self.upload_last_btn.setVisible(False)
+            self.skip_cooldown_btn.setVisible(False)
+        elif in_cooldown:
+            # In Cooldown
+            self.record_btn.setVisible(True)
+            self.record_btn.setEnabled(False)
+            self.record_btn.setText(f"Cooldown ({self.cooldown_remaining}s)")
+            self.record_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #475569; color: #94a3b8; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 12px;
+                }
+            """)
+            self.pause_btn.setVisible(False)
+            self.upload_last_btn.setVisible(False)
+            self.skip_cooldown_btn.setVisible(True)
+        else:
+            # Idle
+            self.record_btn.setVisible(True)
+            self.record_btn.setEnabled(True)
+            self.record_btn.setText("⏺ Start Recording")
+            self.record_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #059669; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 12px;
+                }
+                QPushButton:hover { background-color: #047857; }
+            """)
+            self.pause_btn.setVisible(False)
+            self.upload_last_btn.setVisible(True)
+            has_last = bool(self.last_recording_path and os.path.exists(self.last_recording_path))
+            self.upload_last_btn.setEnabled(has_last)
+            self.skip_cooldown_btn.setVisible(False)
+
+    def _setup_dashboard_tab(self) -> None:
+        """Sets up the sub-tabbed Dashboard layout: Audio & Session Monitor and Live Meeting Copilot."""
+        layout = QVBoxLayout(self.dashboard_tab)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(6)
+
+        self.dashboard_subtabs = QTabWidget(self.dashboard_tab)
+        layout.addWidget(self.dashboard_subtabs)
+
+        # --- Sub-Tab 1: Audio & Session Monitor ---
+        tab_monitor = QWidget()
+        monitor_layout = QVBoxLayout(tab_monitor)
+        monitor_layout.setContentsMargins(6, 6, 6, 6)
+        monitor_layout.setSpacing(8)
+
+        # Meeting Mode Card
+        mode_group = QGroupBox("Meeting Audio Mode")
+        mode_layout = QHBoxLayout(mode_group)
+        mode_layout.addWidget(QLabel("Operating Profile:"))
         self.meeting_mode_combo = QComboBox(self)
         self.meeting_mode_combo.addItem("Virtual Call (Teams/Zoom/Citrix)", "virtual")
         self.meeting_mode_combo.addItem("In-Person Room (Conference Mic)", "in_person")
@@ -332,31 +498,9 @@ class MainWindow(QMainWindow):
         if mode_idx >= 0:
             self.meeting_mode_combo.setCurrentIndex(mode_idx)
         self.meeting_mode_combo.currentIndexChanged.connect(self._meeting_mode_changed)
-        copilot_bar.addWidget(self.meeting_mode_combo, 2)
+        mode_layout.addWidget(self.meeting_mode_combo, 2)
+        monitor_layout.addWidget(mode_group)
 
-        self.copilot_toggle_chk = QCheckBox("Enable Live Copilot HUD")
-        self.copilot_toggle_chk.setChecked(self.settings.copilot_enabled)
-        self.copilot_toggle_chk.toggled.connect(self._copilot_toggle_changed)
-        copilot_bar.addWidget(self.copilot_toggle_chk)
-
-        self.open_hud_btn = QPushButton("💡 Open HUD")
-        self.open_hud_btn.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;")
-        self.open_hud_btn.clicked.connect(self._toggle_copilot_hud)
-        copilot_bar.addWidget(self.open_hud_btn)
-
-        layout.addLayout(copilot_bar)
-        
-        # Level Meters
-        meters_group = QGroupBox("Live Audio Input Levels")
-        meters_layout = QVBoxLayout(meters_group)
-        
-        self.mic_meter = VolumeMeter("Microphone", self)
-        self.spk_meter = VolumeMeter("Speakers (Loopback)", self)
-        
-        meters_layout.addWidget(self.mic_meter)
-        meters_layout.addWidget(self.spk_meter)
-        layout.addWidget(meters_group)
-        
         # Switches Group
         switches_layout = QHBoxLayout()
         self.auto_record_chk = QCheckBox("Enable Auto-Record")
@@ -368,8 +512,19 @@ class MainWindow(QMainWindow):
         self.auto_upload_chk.setChecked(self.settings.auto_upload_enabled)
         self.auto_upload_chk.toggled.connect(self._auto_upload_toggled)
         switches_layout.addWidget(self.auto_upload_chk)
-        layout.addLayout(switches_layout)
+        monitor_layout.addLayout(switches_layout)
+
+        # Level Meters
+        meters_group = QGroupBox("Live Audio Input Levels")
+        meters_layout = QVBoxLayout(meters_group)
         
+        self.mic_meter = VolumeMeter("Microphone", self)
+        self.spk_meter = VolumeMeter("Speakers (Loopback)", self)
+        
+        meters_layout.addWidget(self.mic_meter)
+        meters_layout.addWidget(self.spk_meter)
+        monitor_layout.addWidget(meters_group)
+
         # Tagging widget
         tag_group = QGroupBox("Assign Meeting Tags")
         tag_layout = QVBoxLayout(tag_group)
@@ -381,9 +536,8 @@ class MainWindow(QMainWindow):
         self.refresh_tags_btn = QPushButton("Reload Tags from Server")
         self.refresh_tags_btn.clicked.connect(self._load_active_tags)
         tag_layout.addWidget(self.refresh_tags_btn)
-        
-        layout.addWidget(tag_group)
-        
+        monitor_layout.addWidget(tag_group)
+
         # Windows Live Captions Hint Card
         captions_card = QGroupBox("Live Subtitles & Closed Captions")
         captions_layout = QHBoxLayout(captions_card)
@@ -413,8 +567,15 @@ class MainWindow(QMainWindow):
         """)
         open_captions_btn.clicked.connect(self._open_windows_captions_settings)
         captions_layout.addWidget(open_captions_btn)
-        
-        layout.addWidget(captions_card)
+        monitor_layout.addWidget(captions_card)
+        monitor_layout.addStretch()
+
+        # --- Sub-Tab 2: Live Meeting Copilot ---
+        self._ensure_copilot_session()
+        self.copilot_widget = self.hud
+
+        self.dashboard_subtabs.addTab(tab_monitor, "Audio & Session Monitor")
+        self.dashboard_subtabs.addTab(self.copilot_widget, "Live Meeting Copilot")
 
     def _setup_history_tab(self) -> None:
         layout = QVBoxLayout(self.history_tab)
@@ -1331,11 +1492,8 @@ class MainWindow(QMainWindow):
                 self._start_copilot_session()
                 
                 self.status_label.setText("STATUS: RECORDING (MANUAL) • 00:00")
-                self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
-                self.record_btn.setText("Stop Recording")
-                self.record_btn.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold; padding: 10px;")
-                self.pause_btn.setEnabled(True)
-                self.pause_btn.setText("Pause")
+                self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #ef4444;")
+                self._update_recording_controls_visibility()
                 
                 self.duration_timer.start(1000)
                 if self.tray_manager:
@@ -1346,10 +1504,8 @@ class MainWindow(QMainWindow):
                 self.recorder.is_recording = False
                 self.duration_timer.stop()
                 self.status_label.setText("STATUS: ERROR")
-                self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
-                self.record_btn.setText("Start Recording")
-                self.record_btn.setStyleSheet("background-color: #2ecc71; color: white; font-weight: bold; padding: 10px;")
-                self.pause_btn.setEnabled(False)
+                self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #ef4444;")
+                self._update_recording_controls_visibility()
                 self.statusBar().showMessage(f"Error starting recording: {e}", 5000)
                 if self.tray_manager:
                     self.tray_manager.set_state("ready")
@@ -1402,7 +1558,7 @@ class MainWindow(QMainWindow):
                 self._log(f"[Error] Error stopping recording: {e}")
                 self.statusBar().showMessage(f"Error stopping recording: {e}", 5000)
             finally:
-                self.pause_btn.setEnabled(False)
+                self._update_recording_controls_visibility()
 
     def _upload_last_recording(self) -> None:
         if self.last_recording_path and os.path.exists(self.last_recording_path):
@@ -1420,8 +1576,7 @@ class MainWindow(QMainWindow):
             self.recorder.pause_recording()
             dur_str = RecordingsManager.format_duration(self.recorder.elapsed_seconds)
             self.status_label.setText(f"STATUS: PAUSED • {dur_str}")
-            self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #f1c40f;")
-            self.pause_btn.setText("Resume")
+            self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #f59e0b;")
             if self.tray_manager:
                 self.tray_manager.set_state("paused", dur_str)
         else:
@@ -1429,10 +1584,10 @@ class MainWindow(QMainWindow):
             dur_str = RecordingsManager.format_duration(self.recorder.elapsed_seconds)
             mode_str = self.current_recording_mode.upper()
             self.status_label.setText(f"STATUS: RECORDING ({mode_str}) • {dur_str}")
-            self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
-            self.pause_btn.setText("Pause")
+            self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #ef4444;")
             if self.tray_manager:
                 self.tray_manager.set_state("recording", dur_str)
+        self._update_recording_controls_visibility()
 
     def _update_duration_display(self) -> None:
         """Invoked every 1 second while recording."""
@@ -1457,14 +1612,11 @@ class MainWindow(QMainWindow):
         self.cooldown_remaining = int(seconds)
         if self.cooldown_remaining > 0:
             self.cooldown_timer.start(1000)
-            self.record_btn.setEnabled(False)
-            self.record_btn.setText(f"Cooldown ({self.cooldown_remaining}s)")
-            self.record_btn.setStyleSheet("background-color: #7f8c8d; color: white; font-weight: bold; padding: 10px;")
             self.status_label.setText(f"STATUS: COOLDOWN ({self.cooldown_remaining}s)")
-            self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e67e22;")
-            self.skip_cooldown_btn.setVisible(True)
+            self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #ea580c;")
             if self.tray_manager:
                 self.tray_manager.set_state("cooldown", f"{self.cooldown_remaining}s")
+            self._update_recording_controls_visibility()
         else:
             self._end_cooldown()
 
@@ -1472,8 +1624,8 @@ class MainWindow(QMainWindow):
         """Ticks every 1s during post-recording cooldown."""
         self.cooldown_remaining -= 1
         if self.cooldown_remaining > 0:
-            self.record_btn.setText(f"Cooldown ({self.cooldown_remaining}s)")
             self.status_label.setText(f"STATUS: COOLDOWN ({self.cooldown_remaining}s)")
+            self.record_btn.setText(f"Cooldown ({self.cooldown_remaining}s)")
             if self.tray_manager:
                 self.tray_manager.set_state("cooldown", f"{self.cooldown_remaining}s")
         else:
@@ -1482,14 +1634,11 @@ class MainWindow(QMainWindow):
     def _end_cooldown(self) -> None:
         self.cooldown_timer.stop()
         self.cooldown_remaining = 0
-        self.record_btn.setEnabled(True)
-        self.record_btn.setText("Start Recording")
-        self.record_btn.setStyleSheet("background-color: #2ecc71; color: white; font-weight: bold; padding: 10px;")
         self.status_label.setText("STATUS: IDLE")
-        self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2ecc71;")
-        self.skip_cooldown_btn.setVisible(False)
+        self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #2ecc71;")
         if self.tray_manager:
             self.tray_manager.set_state("ready")
+        self._update_recording_controls_visibility()
 
     def _skip_cooldown(self) -> None:
         self.monitor.cancel_cooldown()
@@ -1534,17 +1683,18 @@ class MainWindow(QMainWindow):
         if success:
             if "Successfully" in message or "Copied" in message:
                 self.last_recording_path = None
-                self.upload_last_btn.setEnabled(False)
+                self._update_recording_controls_visibility()
         else:
             if not self.recorder.is_recording and self.cooldown_remaining <= 0:
                 self.status_label.setText("STATUS: UPLOAD ERROR")
-                self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
+                self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #ef4444;")
                 QTimer.singleShot(5000, self._reset_status_to_idle)
 
     def _reset_status_to_idle(self) -> None:
         if not self.recorder.is_recording and self.cooldown_remaining <= 0:
             self.status_label.setText("STATUS: IDLE")
-            self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2ecc71;")
+            self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #2ecc71;")
+            self._update_recording_controls_visibility()
 
     # Auto-Record callbacks
     def _on_auto_record_started(self, trigger: str) -> None:
@@ -1553,12 +1703,8 @@ class MainWindow(QMainWindow):
     def _handle_auto_record_started(self, trigger: str) -> None:
         self.current_recording_mode = f"auto - {trigger}"
         self.status_label.setText(f"STATUS: RECORDING (AUTO - {trigger.upper()}) • 00:00")
-        self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
-        self.record_btn.setText("Stop Recording")
-        self.record_btn.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold; padding: 10px;")
-        self.pause_btn.setEnabled(True)
-        self.upload_last_btn.setEnabled(False)
-        self.skip_cooldown_btn.setVisible(False)
+        self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #ef4444;")
+        self._update_recording_controls_visibility()
         
         self.duration_timer.start(1000)
         if self.tray_manager:
@@ -1573,7 +1719,7 @@ class MainWindow(QMainWindow):
     def _handle_auto_record_finished(self, file_path: str, tags: List[int]) -> None:
         notes_path = self._stop_copilot_session(file_path)
         self.duration_timer.stop()
-        self.pause_btn.setEnabled(False)
+        self._update_recording_controls_visibility()
         self._log(f"[Monitor] Auto-recording finished: {os.path.basename(file_path)}")
         self.statusBar().showMessage("Auto-recording finished.")
         
@@ -1829,28 +1975,13 @@ class MainWindow(QMainWindow):
         self._log("Copilot & ASR settings updated.")
 
     def _toggle_copilot_hud(self) -> None:
-        """Toggles the visibility of the floating Copilot HUD."""
-        if self.hud and self.hud.isVisible():
-            self.hud.hide()
-        else:
-            self._ensure_copilot_session()
-            if self.hud:
-                self.hud.show()
-                self.hud.raise_()
-                self.hud.activateWindow()
+        """Switches to the Live Meeting Copilot dashboard sub-tab."""
+        self.tabs.setCurrentWidget(self.dashboard_tab)
+        if hasattr(self, "dashboard_subtabs") and hasattr(self, "copilot_widget") and self.copilot_widget:
+            self.dashboard_subtabs.setCurrentWidget(self.copilot_widget)
 
     # Alias for backward compatibility
     _open_copilot_hud = _toggle_copilot_hud
-
-    def _on_hud_visibility_changed(self, visible: bool) -> None:
-        """Updates button label and styling based on HUD visibility."""
-        if hasattr(self, "open_hud_btn"):
-            if visible:
-                self.open_hud_btn.setText("💡 Hide HUD")
-                self.open_hud_btn.setStyleSheet("background-color: #475569; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;")
-            else:
-                self.open_hud_btn.setText("💡 Open HUD")
-                self.open_hud_btn.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;")
 
     def _ensure_copilot_session(self) -> None:
         if self.copilot_memory is None:
@@ -1883,18 +2014,17 @@ class MainWindow(QMainWindow):
             )
 
         if self.hud is None:
-            self.hud = FloatingCopilotHUD(
+            self.hud = CopilotDashboardWidget(
                 self.copilot_memory, 
                 self.copilot_agent,
                 initial_opacity=self.settings.hud_opacity
             )
             self.hud.meeting_mode_changed.connect(self._on_hud_meeting_mode_changed)
             self.hud.asr_provider_changed.connect(self._on_hud_asr_provider_changed)
-            self.hud.opacity_changed.connect(self._on_hud_opacity_changed)
-            self.hud.visibility_changed.connect(self._on_hud_visibility_changed)
+            self.copilot_widget = self.hud
 
     def _on_hud_meeting_mode_changed(self, mode: str) -> None:
-        """Handle meeting mode switch initiated directly from HUD header badge."""
+        """Handle meeting mode switch initiated directly from Copilot widget badge."""
         self.settings.meeting_mode = mode
         if self.vad_segmenter:
             self.vad_segmenter.set_meeting_mode(mode)
@@ -1903,10 +2033,10 @@ class MainWindow(QMainWindow):
         if idx >= 0:
             self.meeting_mode_combo.setCurrentIndex(idx)
         self.meeting_mode_combo.blockSignals(False)
-        self._log(f"[HUD] Switched meeting mode to: {mode.capitalize()}")
+        self._log(f"[Copilot] Switched meeting mode to: {mode.capitalize()}")
 
     def _on_hud_asr_provider_changed(self, provider: str) -> None:
-        """Handle ASR engine switch initiated directly from HUD header badge."""
+        """Handle ASR engine switch initiated directly from Copilot widget badge."""
         self.settings.asr_provider = provider
         self.asr_provider_combo.blockSignals(True)
         idx = self.asr_provider_combo.findData(provider)
@@ -1925,11 +2055,7 @@ class MainWindow(QMainWindow):
                     "cpu_threads": self.settings.asr_cpu_threads
                 }
             )
-        self._log(f"[HUD] Switched ASR engine to: {provider}")
-
-    def _on_hud_opacity_changed(self, opacity: float) -> None:
-        """Handle HUD opacity slider change."""
-        self.settings.hud_opacity = opacity
+        self._log(f"[Copilot] Switched ASR engine to: {provider}")
 
     def _start_copilot_session(self) -> None:
         """Starts real-time transcription tap and Copilot agent."""
@@ -1979,7 +2105,6 @@ class MainWindow(QMainWindow):
             meeting_mode=self.settings.meeting_mode, 
             asr_name_or_key=self.settings.asr_provider
         )
-        self.hud.show()
         self._log(f"[Copilot] Live session started (Mode: {self.settings.meeting_mode}, ASR: {self.settings.asr_provider}, LLM: {self.settings.llm_provider})")
 
     def _stop_copilot_session(self, associated_file_path: Optional[str] = None) -> Optional[str]:

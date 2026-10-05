@@ -73,17 +73,30 @@ class OfflineExtractiveEngine:
         
         # 1. Follow up on any unanswered question from dialogue
         for eq in extracted_questions[:2]:
-            suggested_questions.append(f"Follow up: {eq}")
+            suggested_questions.append({
+                "question": f"Follow up: {eq}",
+                "rationale": "Clarify unaddressed question raised in recent dialogue"
+            })
             
         # 2. Contextual questions based on actions / commitments
         if action_items and len(suggested_questions) < 3:
-            suggested_questions.append("What is the expected timeline and priority for these action items?")
+            first_act = action_items[0]
+            suggested_questions.append({
+                "question": f"Regarding '{first_act[:60]}...', what is the validation criteria and expected delivery window?",
+                "rationale": "Lock down commitment scope and acceptance criteria"
+            })
             
-        # 3. Ownership / Blocker check
+        # 3. Technical Dependency / Blocker check
         if len(suggested_questions) < 3:
-            suggested_questions.append("Who is the primary owner for the next milestone?")
+            suggested_questions.append({
+                "question": "Are there any downstream service dependencies or database locks we need to account for?",
+                "rationale": "Validate system blast radius and failure isolation"
+            })
         if len(suggested_questions) < 3:
-            suggested_questions.append("Are there any technical dependencies or blockers?")
+            suggested_questions.append({
+                "question": "What is the rollback procedure if validation tests fail post-deployment?",
+                "rationale": "Ensure failure recovery plan is confirmed"
+            })
 
         # Formulate live notes from key statements
         notes = []
