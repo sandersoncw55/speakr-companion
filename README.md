@@ -14,8 +14,8 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 | Package | Description | Recommended For |
 | :--- | :--- | :--- |
-| 🚀 [**`SpeakrCompanion-Setup-v1.2.0.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.2.0/SpeakrCompanion-Setup-v1.2.0.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
-| 🗜️ [**`SpeakrCompanion_Portable_v1.2.0.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.2.0/SpeakrCompanion_Portable_v1.2.0.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
+| 🚀 [**`SpeakrCompanion-Setup-v1.3.0.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.3.0/SpeakrCompanion-Setup-v1.3.0.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
+| 🗜️ [**`SpeakrCompanion_Portable_v1.3.0.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.3.0/SpeakrCompanion_Portable_v1.3.0.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
 
 > [!NOTE]
 > The setup installer runs as a standard per-user installation in `%LOCALAPPDATA%\Programs\Speakr Companion` and does not require Administrator privileges or UAC elevation.
@@ -24,7 +24,12 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 ## ✨ Companion App Features
 
-### 🧠 Live Meeting Copilot & Floating HUD (Enhanced in v1.2.0)
+### 🎨 Cyber Dark & Studio Clean Light Themes (New in v1.3.0)
+- **Modern Palette Matching:** High-contrast obsidian backgrounds (`#0e1015`, `#181b22`), crisp slate light mode (`#f8fafc`, `#ffffff`), and channel-differentiated level meters (Cyan for Mic, Lavender/Royal Purple for Speaker Loopback).
+- **Dynamic Runtime Theme Toggle:** Instant `🌙 Dark` / `☀️ Light` button on the top control bar and in Preferences with immediate live UI recoloring.
+- **"Open Speakr" Web Portal Button (`🌐`):** One-click button on the static header to jump directly into the active Speakr server web dashboard in your default browser.
+
+### 🧠 Live Meeting Copilot & Embedded Dashboard (Enhanced in v1.3.0)
 - **Always-on-Top 3-Pane Floating HUD:** Compact, resizable, translucent floating HUD with collapsible panes for:
   - **Live Transcript Ticker:** Real-time conversational speech stream separating speaker channels (`[You]` vs `[Call Participants]`).
   - **Suggested Questions Checklist:** Real-time AI-generated questions, clarifying inquiries, and technical prompts tailored to the ongoing discussion.
@@ -132,7 +137,7 @@ powershell -ExecutionPolicy Bypass -File .\package_release.ps1
 
 A GitHub Actions workflow (`.github/workflows/release.yml`) is included. Whenever you push a version tag, GitHub cloud runners automatically build and publish the release:
 ```powershell
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.3.0
+git push origin v1.3.0
 ```
 

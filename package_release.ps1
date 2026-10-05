@@ -35,7 +35,7 @@ if (-not (Test-Path $releaseDir)) {
     New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 }
 
-$version = "1.2.0"
+$version = "1.3.0"
 if (Test-Path (Join-Path $scriptDir "installer.iss")) {
     $issContent = Get-Content (Join-Path $scriptDir "installer.iss") -Raw
     if ($issContent -match '#define MyAppVersion "([^"]+)"') {

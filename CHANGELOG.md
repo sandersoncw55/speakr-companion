@@ -4,6 +4,36 @@ All notable changes to the Speakr Windows Companion application are documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-10-05
+
+### Added
+- **Cyber Dark & Studio Clean Light Themes (`gui/theme.py`, `core/config.py`, `gui/widgets.py`, `gui/hud.py`, `gui/main_window.py`):**
+  - High-contrast, modern Cyber-Studio Dark Mode palette (Obsidian `#0e1015`, Surface `#181b22`, Cyan `#22d3ee`, Lavender `#c084fc`, Coral `#fb7185`) and Studio Clean Light Mode (`#f8fafc`, `#ffffff`, Cerulean `#0284c7`, Royal Purple `#7c3aed`).
+  - Dynamic runtime theme switching via top-bar `🌙 Dark` / `☀️ Light` button and Preferences dropdown with zero application restarts required.
+  - Channel-differentiated Volume Level Meters: Microphone stream renders in glowing Cyan while System Speaker Loopback renders in Lavender/Royal Purple.
+  - Persistent theme configuration stored in `%APPDATA%\SpeakrCompanion\settings.json`.
+- **"Open Speakr" Web Instance Button (`gui/main_window.py`):**
+  - Added `🌐 Open Speakr` button to the persistent top control bar.
+  - Automatically resolves and sanitizes active server API endpoints (e.g. stripping `/api/v1`) to launch the root Speakr web portal in the default system browser.
+  - Interactive tooltip dynamically updates when switching server profiles.
+- **Embedded Copilot Dashboard & 3-Tier Resizable Layout (`gui/hud.py`, `gui/main_window.py`):**
+  - Integrated 3-tier live copilot workspace directly inside the Dashboard tab with collapsible/resizable splitters.
+  - Real-time rolling summary header featuring current meeting topic, executive summary, and key decisions.
+  - Dedicated Copilot Enable switch and synchronized state management across embedded dashboard and floating HUD modes.
+
+### Fixed & Improved
+- **Tag Selector Layout & Checkbox Clipping (`gui/widgets.py`, `gui/main_window.py`):**
+  - Resolved tag item truncation and checkbox clipping across different DPIs.
+  - Made the tag selection container expand smoothly when resizing the main window.
+- **Subtitles & Closed Captions Card Docking (`gui/main_window.py`):**
+  - Anchored the live closed captions card statically to the bottom of the dashboard layout to eliminate scrolling overlap.
+- **Default Application Window Dimensions (`gui/main_window.py`):**
+  - Updated default launch geometry to 1055x995 for optimal layout visibility without manual resizing.
+- **Automated CI/CD Release Notes Extraction (`.github/workflows/release.yml`):**
+  - Automatic parsing of versioned CHANGELOG entries directly into GitHub Release descriptions on tag pushes.
+
+---
+
 ## [1.2.0] - 2026-10-05
 
 ### Added
