@@ -14,8 +14,8 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 | Package | Description | Recommended For |
 | :--- | :--- | :--- |
-| 🚀 [**`SpeakrCompanion-Setup-v1.1.0.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.1.0/SpeakrCompanion-Setup-v1.1.0.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
-| 🗜️ [**`SpeakrCompanion_Portable_v1.1.0.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.1.0/SpeakrCompanion_Portable_v1.1.0.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
+| 🚀 [**`SpeakrCompanion-Setup-v1.2.0.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.2.0/SpeakrCompanion-Setup-v1.2.0.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
+| 🗜️ [**`SpeakrCompanion_Portable_v1.2.0.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.2.0/SpeakrCompanion_Portable_v1.2.0.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
 
 > [!NOTE]
 > The setup installer runs as a standard per-user installation in `%LOCALAPPDATA%\Programs\Speakr Companion` and does not require Administrator privileges or UAC elevation.
@@ -24,11 +24,12 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 ## ✨ Companion App Features
 
-### 🧠 Live Meeting Copilot & Floating HUD (New in v1.1.0)
+### 🧠 Live Meeting Copilot & Floating HUD (Enhanced in v1.2.0)
 - **Always-on-Top 3-Pane Floating HUD:** Compact, resizable, translucent floating HUD with collapsible panes for:
   - **Live Transcript Ticker:** Real-time conversational speech stream separating speaker channels (`[You]` vs `[Call Participants]`).
   - **Suggested Questions Checklist:** Real-time AI-generated questions, clarifying inquiries, and technical prompts tailored to the ongoing discussion.
   - **Scratchpad & Notes:** Live editable markdown notes and action items automatically synced to meeting sidecar files.
+- **LM Studio Model Auto-Discovery (New in v1.2.0):** Asynchronously pull loaded models from local or LAN LM Studio instances (`GET /v1/models`) with one click via `[🔄 Fetch Models]` without freezing the UI.
 - **Multi-Provider Live Speech Recognition (ASR):**
   - **Local CPU (`faster-whisper`):** Offline, quantized INT8 Whisper models (`tiny.en`, `base.en`, `small.en`) running locally on CPU.
   - **LAN Mac MLX (`Whisper-MLX`):** Offload real-time streaming transcription across your local network to an Apple Silicon Mac.
@@ -41,13 +42,9 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 - **Sidecar Markdown Notes & History Viewer:** Automatically generates `<MeetingName>_Notes.md` alongside recordings. Review markdown notes anytime from the **Recordings History** tab via the rich **View Notes** dialog.
 - **Automatic Post-Meeting Retention & HUD Reset:** Preserves notes and transcript in the HUD when a call finishes for post-meeting review, then automatically clears the workspace when your next recording begins (with manual reset anytime).
 
-### 🎙️ Audio Capture & Auto-Record
-- **Dual-Stream Audio Capture:** Simultaneously records your microphone and system audio (speakers) via WASAPI loopback without requiring active window focus.
-- **Dynamic Tagging:** Fetches your active tags directly from Speakr's REST API. Allows you to tag meetings before or during recording.
-- **Live Recording Duration Timer:** Real-time timer display (`HH:MM:SS`) in the dashboard status card, status bar, and tray tooltip while active.
-- **Context-Aware Level Meters:** Clear indicators (`Idle (Listening...)`, `Idle (Silent)`) when devices are quiet instead of confusing "Mute" text.
-- **Dynamic System Tray Status Badges:** Color-coded status dots on the tray icon (🟢 Green = Ready, 🔴 Red = Recording, 🟡 Yellow = Paused, 🟠 Orange = Cooldown).
-- **Post-Stop Cooldown Delay (1 Minute):** 60-second delay preventing accidental double-clicking of the stop button and rapid auto-retrigger loops.
+### 📁 Recordings History & Compact Actions (New in v1.2.0)
+- **Compact Icon Buttons:** Sleek, space-efficient icon action buttons (`📝` Notes, `▶️` Play, `☁️` Re-Upload, `📁` Reveal in Explorer, `🗑️` Delete) with descriptive tooltips matching the macOS companion layout.
+- **Native File Explorer Integration (`📁`):** Instantly reveals and highlights the recording audio and associated sidecar notes in Windows File Explorer.
 - **Persistent Local Storage & 30-Day Retention:** Retains all manual and auto-uploaded recordings locally in a configurable folder with automated retention expiration pruning and a dedicated **Recordings History** library with one-click **Re-Upload** and playback.
 - **Process Activity Monitor (Auto-Record):**
   - **Zoom:** Automatically starts recording when `CptHost.exe` launches and stops when it terminates.

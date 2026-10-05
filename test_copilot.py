@@ -17,6 +17,8 @@ from tests.test_copilot_pipeline import (
     test_notes_upload_and_summarization_linkage,
     test_hud_toggle_visibility_button,
     test_hud_clear_on_start_and_manual_reset,
+    test_fetch_lm_studio_models_function,
+    test_history_icon_buttons_and_model_fetch_ui,
 )
 
 class TestCopilotSuite(unittest.TestCase):
@@ -61,6 +63,12 @@ class TestCopilotSuite(unittest.TestCase):
 
     def test_14_hud_clear_on_start_and_manual_reset(self):
         test_hud_clear_on_start_and_manual_reset()
+
+    def test_15_fetch_lm_studio_models_function(self):
+        test_fetch_lm_studio_models_function()
+
+    def test_16_history_icon_buttons_and_model_fetch_ui(self):
+        test_history_icon_buttons_and_model_fetch_ui()
 
 if __name__ == "__main__":
     unittest.main()

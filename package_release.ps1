@@ -35,6 +35,14 @@ if (-not (Test-Path $releaseDir)) {
     New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 }
 
+$version = "1.2.0"
+if (Test-Path (Join-Path $scriptDir "installer.iss")) {
+    $issContent = Get-Content (Join-Path $scriptDir "installer.iss") -Raw
+    if ($issContent -match '#define MyAppVersion "([^"]+)"') {
+        $version = $matches[1]
+    }
+}
+
 $tempPkgDir = Join-Path $releaseDir "SpeakrCompanion_Portable"
 if (Test-Path $tempPkgDir) {
     Remove-Item -Path $tempPkgDir -Recurse -Force
@@ -45,14 +53,14 @@ Copy-Item "dist\SpeakrCompanion.exe" -Destination $tempPkgDir
 Copy-Item "app_icon.ico" -Destination $tempPkgDir
 Copy-Item "README.md" -Destination $tempPkgDir
 
-$zipPath = Join-Path $releaseDir "SpeakrCompanion_Portable_v1.1.0.zip"
+$zipPath = Join-Path $releaseDir "SpeakrCompanion_Portable_v$version.zip"
 if (Test-Path $zipPath) {
     Remove-Item -Path $zipPath -Force
 }
 Compress-Archive -Path "$tempPkgDir\*" -DestinationPath $zipPath
 Remove-Item -Path $tempPkgDir -Recurse -Force
 
-Write-Host "[OK] Portable ZIP created: $zipPath" -ForegroundColor Green
+Write-Host "[OK] Portable ZIP created: $zipPath (v$version)" -ForegroundColor Green
 
 # 4. Optional Inno Setup Compiler check
 Write-Host "`n[4/4] Checking for Inno Setup compiler (ISCC)..." -ForegroundColor Yellow

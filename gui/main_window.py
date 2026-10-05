@@ -23,7 +23,7 @@ from core.storage import RecordingsManager
 from gui.widgets import VolumeMeter, TagSelector
 from core.copilot.segmenter import VADSegmenter, AudioSegment
 from core.copilot.memory import CopilotMemory
-from core.copilot.agent import CopilotAgent
+from core.copilot.agent import CopilotAgent, fetch_lm_studio_models
 from core.asr.manager import ASRManager
 from gui.hud import FloatingCopilotHUD
 
@@ -563,43 +563,135 @@ class MainWindow(QMainWindow):
 
                 has_notes = bool(notes_path and os.path.exists(notes_path))
                 if has_notes:
-                    notes_btn = QPushButton("📝 Notes")
+                    notes_btn = QPushButton("📝")
                     notes_btn.setStyleSheet("""
                         QPushButton {
-                            padding: 3px 8px;
-                            font-size: 11px;
+                            min-width: 28px;
+                            max-width: 32px;
+                            height: 24px;
+                            padding: 2px 4px;
+                            font-size: 13px;
                             background-color: #065f46;
                             color: #a7f3d0;
                             border: 1px solid #059669;
                             border-radius: 4px;
-                            font-weight: 500;
                         }
                         QPushButton:hover {
                             background-color: #047857;
                             color: #ffffff;
                         }
                     """)
-                    notes_btn.setToolTip("View Copilot meeting notes, questions, and checklist")
+                    notes_btn.setToolTip("View Copilot meeting notes & action items")
                     notes_btn.clicked.connect(lambda _, np=notes_path, fn=filename: self._view_meeting_notes(np, fn))
                     action_layout.addWidget(notes_btn)
 
-                # Re-upload button
-                reup_btn = QPushButton("Re-Upload")
-                reup_btn.setStyleSheet("padding: 3px 8px; font-size: 11px;")
-                reup_btn.setEnabled(exists)
-                reup_btn.clicked.connect(lambda _, p=file_path, t=rec.get("tag_ids", []): self._reupload_file(p, t))
-                action_layout.addWidget(reup_btn)
-                
-                # Play / Open button
-                open_btn = QPushButton("Play")
-                open_btn.setStyleSheet("padding: 3px 8px; font-size: 11px;")
+                # Play button
+                open_btn = QPushButton("▶️")
+                open_btn.setStyleSheet("""
+                    QPushButton {
+                        min-width: 28px;
+                        max-width: 32px;
+                        height: 24px;
+                        padding: 2px 4px;
+                        font-size: 12px;
+                        background-color: #1e3a8a;
+                        color: #bfdbfe;
+                        border: 1px solid #2563eb;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        background-color: #1d4ed8;
+                        color: #ffffff;
+                    }
+                    QPushButton:disabled {
+                        background-color: #374151;
+                        color: #6b7280;
+                        border-color: #4b5563;
+                    }
+                """)
+                open_btn.setToolTip("Play recording in default media player")
                 open_btn.setEnabled(exists)
                 open_btn.clicked.connect(lambda _, p=file_path: self._play_file(p))
                 action_layout.addWidget(open_btn)
+
+                # Re-upload button
+                reup_btn = QPushButton("☁️")
+                reup_btn.setStyleSheet("""
+                    QPushButton {
+                        min-width: 28px;
+                        max-width: 32px;
+                        height: 24px;
+                        padding: 2px 4px;
+                        font-size: 13px;
+                        background-color: #0284c7;
+                        color: #e0f2fe;
+                        border: 1px solid #0369a1;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        background-color: #0369a1;
+                        color: #ffffff;
+                    }
+                    QPushButton:disabled {
+                        background-color: #374151;
+                        color: #6b7280;
+                        border-color: #4b5563;
+                    }
+                """)
+                reup_btn.setToolTip("Upload recording to Speakr server")
+                reup_btn.setEnabled(exists)
+                reup_btn.clicked.connect(lambda _, p=file_path, t=rec.get("tag_ids", []): self._reupload_file(p, t))
+                action_layout.addWidget(reup_btn)
+
+                # Reveal in Explorer button
+                folder_btn = QPushButton("📁")
+                folder_btn.setStyleSheet("""
+                    QPushButton {
+                        min-width: 28px;
+                        max-width: 32px;
+                        height: 24px;
+                        padding: 2px 4px;
+                        font-size: 13px;
+                        background-color: #334155;
+                        color: #cbd5e1;
+                        border: 1px solid #475569;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        background-color: #475569;
+                        color: #ffffff;
+                    }
+                    QPushButton:disabled {
+                        background-color: #374151;
+                        color: #6b7280;
+                        border-color: #4b5563;
+                    }
+                """)
+                folder_btn.setToolTip("Show recording in Windows File Explorer")
+                folder_btn.setEnabled(exists)
+                folder_btn.clicked.connect(lambda _, p=file_path: self._reveal_in_explorer(p))
+                action_layout.addWidget(folder_btn)
                 
                 # Delete button
-                del_btn = QPushButton("Delete")
-                del_btn.setStyleSheet("padding: 3px 8px; font-size: 11px; color: #e74c3c;")
+                del_btn = QPushButton("🗑️")
+                del_btn.setStyleSheet("""
+                    QPushButton {
+                        min-width: 28px;
+                        max-width: 32px;
+                        height: 24px;
+                        padding: 2px 4px;
+                        font-size: 13px;
+                        background-color: #7f1d1d;
+                        color: #fecaca;
+                        border: 1px solid #991b1b;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        background-color: #991b1b;
+                        color: #ffffff;
+                    }
+                """)
+                del_btn.setToolTip("Delete recording from disk and history")
                 del_btn.clicked.connect(lambda _, p=file_path: self._delete_history_file(p))
                 action_layout.addWidget(del_btn)
                 
@@ -615,6 +707,18 @@ class MainWindow(QMainWindow):
         self._log(f"Re-uploading '{filename}'...")
         self.statusBar().showMessage(f"Re-uploading '{filename}' in background...")
         self.uploader.process_file(file_path, tag_ids)
+
+    def _reveal_in_explorer(self, file_path: str) -> None:
+        """Opens Windows File Explorer and selects the recording file."""
+        if os.path.exists(file_path):
+            try:
+                import subprocess
+                subprocess.Popen(f'explorer /select,"{os.path.abspath(file_path)}"')
+            except Exception as e:
+                try:
+                    os.startfile(os.path.dirname(file_path))
+                except Exception:
+                    self._log(f"[Error] Could not open Explorer: {e}")
 
     def _play_file(self, file_path: str) -> None:
         if os.path.exists(file_path):
@@ -930,11 +1034,36 @@ class MainWindow(QMainWindow):
         self.ollama_endpoint_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("Ollama Endpoint:", self.ollama_endpoint_input)
 
-        # Row 6: LLM Model Name
-        self.llm_model_input = QLineEdit(self.settings.llm_model)
-        self.llm_model_input.setPlaceholderText("openai/gpt-4o-mini, llama3.2, or local-model")
-        self.llm_model_input.textChanged.connect(self._asr_settings_changed)
-        self.llm_form.addRow("Model Name:", self.llm_model_input)
+        # Row 6: LLM Model Name & Auto-Discovery
+        model_row_layout = QHBoxLayout()
+        self.llm_model_combo = QComboBox(self)
+        self.llm_model_combo.setEditable(True)
+        self.llm_model_combo.lineEdit().setPlaceholderText("e.g. llama3.2, qwen2.5-coder, or gpt-4o-mini")
+        self.llm_model_combo.setCurrentText(self.settings.llm_model)
+        self.llm_model_combo.currentTextChanged.connect(self._asr_settings_changed)
+        model_row_layout.addWidget(self.llm_model_combo, 1)
+
+        self.fetch_models_btn = QPushButton("🔄 Fetch Models")
+        self.fetch_models_btn.setStyleSheet("""
+            QPushButton {
+                padding: 4px 10px;
+                font-size: 11px;
+                background-color: #334155;
+                color: #e2e8f0;
+                border: 1px solid #475569;
+                border-radius: 4px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #475569;
+                color: #ffffff;
+            }
+        """)
+        self.fetch_models_btn.setToolTip("Pull available/loaded model IDs from LM Studio endpoint")
+        self.fetch_models_btn.clicked.connect(self._fetch_lm_models_clicked)
+        model_row_layout.addWidget(self.fetch_models_btn)
+
+        self.llm_form.addRow("Model Name:", model_row_layout)
 
         # Row 7: Cadence
         self.cadence_combo = QComboBox(self)
@@ -1526,6 +1655,61 @@ class MainWindow(QMainWindow):
         self.llm_form.setRowVisible(4, is_gemini)
         self.llm_form.setRowVisible(5, is_ollama)
         self.llm_form.setRowVisible(6, not is_offline)
+        if hasattr(self, "fetch_models_btn"):
+            self.fetch_models_btn.setVisible(is_lm_studio)
+
+    def _fetch_lm_models_clicked(self) -> None:
+        """Asynchronously queries LM Studio endpoint for available models and populates combo box."""
+        endpoint = self.lm_studio_url_input.text().strip()
+        if not endpoint:
+            endpoint = "http://localhost:1234/v1"
+
+        self.fetch_models_btn.setEnabled(False)
+        self.fetch_models_btn.setText("🔄 Fetching...")
+        self.statusBar().showMessage(f"Fetching models from LM Studio ({endpoint})...")
+
+        class FetchSignal(QObject):
+            finished = Signal(bool, list, str)
+
+        bridge = FetchSignal()
+
+        def _worker():
+            try:
+                models = fetch_lm_studio_models(endpoint)
+                bridge.finished.emit(True, models, "")
+            except Exception as e:
+                bridge.finished.emit(False, [], str(e))
+
+        def _on_finished(success: bool, models: list, error_msg: str):
+            self.fetch_models_btn.setEnabled(True)
+            self.fetch_models_btn.setText("🔄 Fetch Models")
+            if success:
+                current_val = self.llm_model_combo.currentText().strip()
+                self.llm_model_combo.blockSignals(True)
+                self.llm_model_combo.clear()
+                for m in models:
+                    self.llm_model_combo.addItem(m)
+                
+                # Restore previous model or select first
+                if current_val and current_val in models:
+                    self.llm_model_combo.setCurrentText(current_val)
+                elif models:
+                    self.llm_model_combo.setCurrentIndex(0)
+                    self.settings.llm_model = models[0]
+                
+                self.llm_model_combo.blockSignals(False)
+                count = len(models)
+                msg = f"✓ Found {count} LM Studio model(s): {', '.join(models[:3])}{'...' if count > 3 else ''}"
+                self._log(f"[LM Studio] {msg}")
+                self.statusBar().showMessage(msg, 5000)
+            else:
+                msg = f"✗ Failed to connect to LM Studio at {endpoint}: {error_msg}"
+                self._log(f"[LM Studio Error] {msg}")
+                self.statusBar().showMessage(msg, 6000)
+
+        bridge.finished.connect(_on_finished)
+        self._fetch_models_bridge = bridge
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _asr_settings_changed(self) -> None:
         provider = self.asr_provider_combo.currentData()
@@ -1551,7 +1735,10 @@ class MainWindow(QMainWindow):
         self.settings.openrouter_api_key = self.openrouter_key_input.text().strip()
         self.settings.gemini_api_key = self.gemini_key_input.text().strip()
         self.settings.ollama_endpoint = self.ollama_endpoint_input.text().strip()
-        self.settings.llm_model = self.llm_model_input.text().strip()
+        if hasattr(self, "llm_model_combo"):
+            self.settings.llm_model = self.llm_model_combo.currentText().strip()
+        elif hasattr(self, "llm_model_input"):
+            self.settings.llm_model = self.llm_model_input.text().strip()
         cadence = self.cadence_combo.currentData()
         if cadence:
             self.settings.copilot_cadence_seconds = int(cadence)

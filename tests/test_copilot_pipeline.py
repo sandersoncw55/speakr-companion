@@ -625,6 +625,111 @@ def test_hud_clear_on_start_and_manual_reset():
 
     print("[OK] HUD Clear on Start Recording & Manual Reset passed.")
 
+def test_fetch_lm_studio_models_function():
+    print("Testing fetch_lm_studio_models utility...")
+    from unittest.mock import patch, MagicMock
+    from core.copilot.agent import fetch_lm_studio_models
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "data": [
+            {"id": "llama-3.2-3b-instruct"},
+            {"id": "qwen2.5-coder-7b-instruct"},
+            {"id": "deepseek-r1-distill-qwen-7b"}
+        ]
+    }
+
+    with patch("httpx.Client.get", return_value=mock_resp):
+        models = fetch_lm_studio_models("http://localhost:1234/v1")
+        assert len(models) == 3
+        assert "llama-3.2-3b-instruct" in models
+        assert "qwen2.5-coder-7b-instruct" in models
+
+    # Test error handling
+    err_resp = MagicMock()
+    err_resp.status_code = 500
+    err_resp.text = "Internal Server Error"
+    with patch("httpx.Client.get", return_value=err_resp):
+        try:
+            fetch_lm_studio_models("http://localhost:1234/v1")
+            assert False, "Should have raised RuntimeError"
+        except RuntimeError as e:
+            assert "HTTP 500" in str(e)
+
+    print("[OK] fetch_lm_studio_models passed.")
+
+def test_history_icon_buttons_and_model_fetch_ui():
+    print("Testing History Table Icon Buttons and LM Studio Model Fetch UI...")
+    import tempfile
+    from PySide6.QtWidgets import QApplication, QPushButton
+    from core.config import Settings
+    from core.recorder import AudioRecorder
+    from core.uploader import AudioUploader
+    from core.storage import RecordingsManager
+    from gui.main_window import MainWindow
+    from unittest.mock import patch, MagicMock
+
+    app = QApplication.instance() or QApplication([])
+    s = Settings()
+    rec = AudioRecorder()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        s.local_recordings_dir = tmpdir
+        stor = RecordingsManager(s)
+        up = AudioUploader(s, stor)
+
+        # Create dummy audio recording & notes sidecar
+        dummy_audio = os.path.join(tmpdir, "Meeting_2026-10-05_Test.mp4")
+        dummy_notes = os.path.join(tmpdir, "Meeting_2026-10-05_Test_Notes.md")
+        with open(dummy_audio, "wb") as f:
+            f.write(b"RIFF dummy audio data")
+        with open(dummy_notes, "w", encoding="utf-8") as f:
+            f.write("# Notes for testing")
+
+        stor.add_recording(dummy_audio, "manual", 120.0, [1, 2], status="Local Only", notes_path=dummy_notes)
+
+        w = MainWindow(s, rec, up, stor)
+        try:
+            # 1. Verify history table has row with action widget containing icon buttons
+            w._refresh_history_table()
+            assert w.history_table.rowCount() >= 1
+            action_widget = w.history_table.cellWidget(0, 6)
+            assert action_widget is not None
+
+            buttons = action_widget.findChildren(QPushButton)
+            btn_texts = [b.text() for b in buttons]
+            assert "📝" in btn_texts, "Notes icon button must be present"
+            assert "▶️" in btn_texts, "Play icon button must be present"
+            assert "☁️" in btn_texts, "Re-Upload icon button must be present"
+            assert "📁" in btn_texts, "Reveal in Explorer icon button must be present"
+            assert "🗑️" in btn_texts, "Delete icon button must be present"
+
+            # Check tooltips
+            for b in buttons:
+                assert len(b.toolTip()) > 0, f"Button {b.text()} must have a tooltip"
+
+            # 2. Verify LM Studio model fetch button and combo box in Preferences
+            assert hasattr(w, "llm_model_combo")
+            assert hasattr(w, "fetch_models_btn")
+            assert w.llm_model_combo.isEditable() is True
+
+            # Mock fetch models
+            mock_models = ["model-alpha", "model-beta"]
+            with patch("gui.main_window.fetch_lm_studio_models", return_value=mock_models):
+                w.fetch_models_btn.click()
+                # Wait briefly for thread execution
+                time.sleep(0.1)
+                QApplication.processEvents()
+
+        finally:
+            if w.hud:
+                w.hud.close()
+            rec.terminate()
+            w.close()
+
+    print("[OK] History Table Icon Buttons & Model Fetch UI passed.")
+
 if __name__ == "__main__":
     test_memory_and_scratchpad()
     test_prompts_and_tag_personas()
@@ -640,5 +745,7 @@ if __name__ == "__main__":
     test_notes_upload_and_summarization_linkage()
     test_hud_toggle_visibility_button()
     test_hud_clear_on_start_and_manual_reset()
+    test_fetch_lm_studio_models_function()
+    test_history_icon_buttons_and_model_fetch_ui()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
 

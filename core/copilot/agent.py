@@ -507,3 +507,43 @@ class CopilotAgent:
         else:
             raise ValueError(f"Unknown LLM provider: {self.llm_provider}")
 
+
+def fetch_lm_studio_models(endpoint: str, api_key: str = "") -> List[str]:
+    """Queries LM Studio / OpenAI-compatible endpoint for available model names.
+    
+    Args:
+        endpoint: Base URL (e.g. 'http://localhost:1234', 'http://localhost:1234/v1', or 'http://192.168.0.88:1234/v1/models')
+        api_key: Optional bearer token
+        
+    Returns:
+        List of model IDs (e.g. ['qwen2.5-coder-7b-instruct', 'llama-3.2-3b-instruct'])
+    """
+    clean_ep = endpoint.strip().rstrip("/")
+    if not clean_ep:
+        clean_ep = "http://localhost:1234/v1"
+        
+    if not clean_ep.endswith("/models"):
+        if not clean_ep.endswith("/v1"):
+            clean_ep = f"{clean_ep}/v1"
+        models_url = f"{clean_ep}/models"
+    else:
+        models_url = clean_ep
+
+    headers = {}
+    if api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+
+    with httpx.Client(timeout=4.0) as client:
+        resp = client.get(models_url, headers=headers)
+        if resp.status_code == 200:
+            data = resp.json()
+            models_data = data.get("data", [])
+            models = []
+            for item in models_data:
+                if isinstance(item, dict) and "id" in item:
+                    models.append(item["id"])
+                elif isinstance(item, str):
+                    models.append(item)
+            return sorted(models)
+        raise RuntimeError(f"LM Studio returned HTTP {resp.status_code}: {resp.text}")
+
