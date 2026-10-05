@@ -55,13 +55,27 @@ jobs:
         run: |
           ISCC.exe installer.iss
 
+      - name: Extract Release Notes from CHANGELOG
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $changelog = Get-Content CHANGELOG.md -Raw
+          $pattern = "(?s)## \[$tag\].*?(?=(?:\r?\n## \[|\Z))"
+          if ($changelog -match $pattern) {
+              $notes = $matches[0].Trim()
+              $notes | Out-File -FilePath releases/RELEASE_NOTES.md -Encoding utf8
+              Write-Host "Extracted release notes for version $tag"
+          } else {
+              Set-Content -Path releases/RELEASE_NOTES.md -Value "**Full Changelog**: https://github.com/sandersoncw55/speakr-companion/releases" -Encoding utf8
+          }
+
       - name: Publish Release to GitHub
         uses: softprops/action-gh-release@v2
         with:
           name: Speakr Companion ${{ github.ref_name }}
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body_path: releases/RELEASE_NOTES.md
           files: |
             releases/SpeakrCompanion-Setup-*.exe
             releases/SpeakrCompanion_Portable_*.zip
