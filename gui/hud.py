@@ -7,10 +7,10 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QLineEdit, QTextEdit, QPlainTextEdit,
     QFrame, QSplitter, QCheckBox, QSlider, QApplication, QComboBox,
-    QAbstractItemView, QGroupBox
+    QAbstractItemView, QGroupBox, QTextBrowser, QStackedWidget
 )
 from core.config import get_app_icon, Settings
-from core.copilot.memory import CopilotMemory, SuggestedQuestion
+from core.copilot.memory import CopilotMemory, SuggestedQuestion, FollowUpItem
 
 class CopilotSignals(QObject):
     """Thread-safe Qt signals bridging background audio/agent workers to GUI."""
@@ -26,8 +26,8 @@ class TwoLineNoteEdit(QPlainTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(48)
-        self.setPlaceholderText("+ Add custom note or context... (Enter to add, Shift+Enter for newline)")
+        self.setFixedHeight(44)
+        self.setPlaceholderText("+ Add custom note or context... (Enter to submit, Shift+Enter for newline)")
         self.setStyleSheet("""
             QPlainTextEdit {
                 background-color: #0f172a;
@@ -39,7 +39,7 @@ class TwoLineNoteEdit(QPlainTextEdit):
                 line-height: 1.2;
             }
             QPlainTextEdit:focus {
-                border: 1px solid #10b981;
+                border: 1px solid #38bdf8;
             }
         """)
 
@@ -69,7 +69,7 @@ class QuestionItemWidget(QWidget):
         # Question text
         self.label = QLabel(question.question)
         self.label.setWordWrap(True)
-        self.label.setStyleSheet("color: #f8fafc; font-size: 13px; font-weight: 600; line-height: 1.3;")
+        self.label.setStyleSheet("color: #f8fafc; font-size: 12px; font-weight: 600; line-height: 1.3;")
         layout.addWidget(self.label)
 
         # Rationale sub-text if present
@@ -89,7 +89,7 @@ class QuestionItemWidget(QWidget):
         self.copy_btn.setStyleSheet("""
             QPushButton {
                 background-color: #334155; color: #f8fafc; border: 1px solid #475569;
-                border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 500;
+                border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 500;
             }
             QPushButton:hover { background-color: #475569; }
         """)
@@ -98,11 +98,11 @@ class QuestionItemWidget(QWidget):
 
         # Mark Asked button
         self.asked_btn = QPushButton("✔ Asked")
-        self.asked_btn.setToolTip("Mark as asked (moves to scratchpad as addressed)")
+        self.asked_btn.setToolTip("Mark as asked during meeting")
         self.asked_btn.setStyleSheet("""
             QPushButton {
                 background-color: #065f46; color: #a7f3d0; border: 1px solid #059669;
-                border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: bold;
+                border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: bold;
             }
             QPushButton:hover { background-color: #047857; }
         """)
@@ -117,7 +117,7 @@ class QuestionItemWidget(QWidget):
         self.dismiss_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent; color: #94a3b8; border: 1px solid #334155;
-                border-radius: 4px; padding: 3px 8px; font-size: 11px;
+                border-radius: 4px; padding: 2px 6px; font-size: 11px;
             }
             QPushButton:hover { background-color: #1e293b; color: #ef4444; border-color: #7f1d1d; }
         """)
@@ -127,14 +127,87 @@ class QuestionItemWidget(QWidget):
         layout.addLayout(btn_layout)
 
 
+class FollowUpItemWidget(QWidget):
+    """Widget rendering an individual action item / follow-up with Copy, Done, and Dismiss actions."""
+
+    def __init__(self, item: FollowUpItem, on_copy_cb, on_done_cb, on_dismiss_cb):
+        super().__init__()
+        self.item = item
+        self.on_copy_cb = on_copy_cb
+        self.on_done_cb = on_done_cb
+        self.on_dismiss_cb = on_dismiss_cb
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(4)
+
+        # Task text
+        self.label = QLabel(item.task)
+        self.label.setWordWrap(True)
+        self.label.setStyleSheet("color: #f8fafc; font-size: 12px; font-weight: 600; line-height: 1.3;")
+        layout.addWidget(self.label)
+
+        # Owner tag
+        owner_str = item.owner if item.owner and item.owner != "Unassigned" else "Unassigned"
+        self.owner_label = QLabel(f"👤 Owner: {owner_str}")
+        self.owner_label.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 500;")
+        layout.addWidget(self.owner_label)
+
+        # Actions Layout
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(6)
+
+        # Copy button
+        self.copy_btn = QPushButton("📋 Copy")
+        self.copy_btn.setToolTip("Copy action item to clipboard")
+        self.copy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #334155; color: #f8fafc; border: 1px solid #475569;
+                border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 500;
+            }
+            QPushButton:hover { background-color: #475569; }
+        """)
+        self.copy_btn.clicked.connect(lambda: self.on_copy_cb(self.item.task))
+        btn_layout.addWidget(self.copy_btn)
+
+        # Done button
+        self.done_btn = QPushButton("✔ Done")
+        self.done_btn.setToolTip("Mark as completed")
+        self.done_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0284c7; color: #e0f2fe; border: 1px solid #0369a1;
+                border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #0369a1; }
+        """)
+        self.done_btn.clicked.connect(lambda: self.on_done_cb(self.item.task))
+        btn_layout.addWidget(self.done_btn)
+
+        btn_layout.addStretch()
+
+        # Dismiss button
+        self.dismiss_btn = QPushButton("✕ Dismiss")
+        self.dismiss_btn.setToolTip("Dismiss this item")
+        self.dismiss_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent; color: #94a3b8; border: 1px solid #334155;
+                border-radius: 4px; padding: 2px 6px; font-size: 11px;
+            }
+            QPushButton:hover { background-color: #1e293b; color: #ef4444; border-color: #7f1d1d; }
+        """)
+        self.dismiss_btn.clicked.connect(lambda: self.on_dismiss_cb(self.item.task))
+        btn_layout.addWidget(self.dismiss_btn)
+
+        layout.addLayout(btn_layout)
+
+
 class CopilotDashboardWidget(QWidget):
-    """Embedded, comprehensive in-app Live Meeting Intelligence & Copilot widget."""
+    """Embedded, comprehensive 3-Tier Resizable Live Meeting Intelligence & Copilot widget."""
 
     # Public Qt signals for synchronization with main window
     meeting_mode_changed = Signal(str)
     asr_provider_changed = Signal(str)
-    opacity_changed = Signal(float)
-    visibility_changed = Signal(bool)
+    enable_copilot_requested = Signal()
 
     def __init__(self, memory: CopilotMemory, copilot_agent, initial_opacity: float = 0.92, parent=None):
         super().__init__(parent)
@@ -153,6 +226,87 @@ class CopilotDashboardWidget(QWidget):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(6, 6, 6, 6)
         root_layout.setSpacing(6)
+
+        # --- Stacked Widget: Active Intelligence vs Disabled Banner ---
+        self.stack = QStackedWidget(self)
+        root_layout.addWidget(self.stack)
+
+        # View 0: Active Copilot Interface
+        self.active_page = QWidget()
+        self._setup_active_page()
+        self.stack.addWidget(self.active_page)
+
+        # View 1: Disabled Overlay Page
+        self.disabled_page = QWidget()
+        self._setup_disabled_page()
+        self.stack.addWidget(self.disabled_page)
+
+        # Default to active page
+        self.stack.setCurrentIndex(0)
+
+    def _setup_disabled_page(self):
+        layout = QVBoxLayout(self.disabled_page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setAlignment(Qt.AlignCenter)
+
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet("""
+            QFrame#card {
+                background-color: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 8px;
+                padding: 30px;
+                max-width: 480px;
+            }
+        """)
+        card_layout = QVBoxLayout(card)
+        card_layout.setSpacing(14)
+        card_layout.setAlignment(Qt.AlignCenter)
+
+        icon_lbl = QLabel("🤖")
+        icon_lbl.setStyleSheet("font-size: 36px;")
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(icon_lbl)
+
+        title_lbl = QLabel("Live Copilot is Turned Off")
+        title_lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: #f8fafc;")
+        title_lbl.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(title_lbl)
+
+        desc_lbl = QLabel(
+            "Live speech-to-text and AI synthesis are suspended to save system resources.\n"
+            "Turn on Copilot to receive live in-the-moment dialogue questions, rolling meeting summaries, and action item extraction."
+        )
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setStyleSheet("color: #94a3b8; font-size: 12px; line-height: 1.4;")
+        desc_lbl.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(desc_lbl)
+
+        enable_btn = QPushButton("▶ Turn On Copilot")
+        enable_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #059669;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: bold;
+                padding: 8px 24px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #047857;
+            }
+        """)
+        enable_btn.clicked.connect(self._request_enable_copilot)
+        card_layout.addWidget(enable_btn, alignment=Qt.AlignCenter)
+
+        layout.addWidget(card)
+
+    def _setup_active_page(self):
+        page_layout = QVBoxLayout(self.active_page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(6)
 
         # --- Top Header & Controls Bar ---
         header_frame = QFrame()
@@ -236,7 +390,7 @@ class CopilotDashboardWidget(QWidget):
         self.reset_btn.clicked.connect(self._on_manual_reset_clicked)
         header_layout.addWidget(self.reset_btn)
 
-        root_layout.addWidget(header_frame)
+        page_layout.addWidget(header_frame)
 
         # --- Quick Actions Bar ---
         quick_frame = QFrame()
@@ -270,7 +424,7 @@ class CopilotDashboardWidget(QWidget):
         self.btn_catchup.clicked.connect(lambda: self.agent.run_quick_prompt("catch_me_up"))
         btn_row.addWidget(self.btn_catchup)
 
-        self.btn_owners = QPushButton("🎯 Owners")
+        self.btn_owners = QPushButton("🎯 Action Items")
         self.btn_owners.setStyleSheet(self._quick_btn_style("#4f46e5"))
         self.btn_owners.clicked.connect(lambda: self.agent.run_quick_prompt("clarify_ownership"))
         btn_row.addWidget(self.btn_owners)
@@ -301,63 +455,19 @@ class CopilotDashboardWidget(QWidget):
         self.adhoc_input.returnPressed.connect(self._submit_adhoc_query)
         quick_layout.addWidget(self.adhoc_input)
 
-        root_layout.addWidget(quick_frame)
+        page_layout.addWidget(quick_frame)
 
-        # --- Main Splitter: Left (Live Transcript) vs Right (Questions & Scratchpad) ---
-        self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setStyleSheet("QSplitter::handle { background-color: #334155; width: 4px; border-radius: 2px; }")
+        # --- 3-Tier Master Vertical Resizable Splitter ---
+        self.main_v_splitter = QSplitter(Qt.Vertical)
+        self.main_v_splitter.setStyleSheet("QSplitter::handle { background-color: #334155; height: 4px; border-radius: 2px; }")
 
-        # --- Left Pane: Live Transcript Stream ---
-        transcript_frame = QFrame()
-        transcript_frame.setObjectName("card")
-        transcript_frame.setStyleSheet("""
-            QFrame#card {
-                background-color: #1e293b;
-                border: 1px solid #334155;
-                border-radius: 6px;
-            }
-        """)
-        transcript_layout = QVBoxLayout(transcript_frame)
-        transcript_layout.setContentsMargins(8, 6, 8, 6)
-        transcript_layout.setSpacing(4)
+        # =========================================================================
+        # TIER 1 (TOP): Side-by-Side Horizontal Splitter (Questions & Follow-ups)
+        # =========================================================================
+        self.top_h_splitter = QSplitter(Qt.Horizontal)
+        self.top_h_splitter.setStyleSheet("QSplitter::handle { background-color: #334155; width: 4px; border-radius: 2px; }")
 
-        tr_head = QHBoxLayout()
-        tr_title = QLabel("💬 LIVE TRANSCRIPT STREAM")
-        tr_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #a78bfa; letter-spacing: 0.5px;")
-        tr_head.addWidget(tr_title)
-        tr_head.addStretch()
-
-        self.auto_scroll_chk = QCheckBox("Auto-scroll")
-        self.auto_scroll_chk.setChecked(True)
-        self.auto_scroll_chk.setStyleSheet("color: #94a3b8; font-size: 10px;")
-        tr_head.addWidget(self.auto_scroll_chk)
-
-        clear_tr_btn = QPushButton("Clear Feed")
-        clear_tr_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: none; color: #64748b; font-size: 10px; }
-            QPushButton:hover { color: #cbd5e1; }
-        """)
-        clear_tr_btn.clicked.connect(self._clear_transcript_feed)
-        tr_head.addWidget(clear_tr_btn)
-        transcript_layout.addLayout(tr_head)
-
-        self.ticker_box = QTextEdit()
-        self.ticker_box.setReadOnly(True)
-        self.ticker_box.setStyleSheet("""
-            QTextEdit {
-                background-color: #020617; border: 1px solid #0f172a; border-radius: 4px;
-                color: #e2e8f0; font-size: 11px; font-family: 'Consolas', 'Courier New', monospace;
-                line-height: 1.4;
-            }
-        """)
-        transcript_layout.addWidget(self.ticker_box)
-        self.splitter.addWidget(transcript_frame)
-
-        # --- Right Container: Questions (Top) and Scratchpad (Bottom) ---
-        right_splitter = QSplitter(Qt.Vertical)
-        right_splitter.setStyleSheet("QSplitter::handle { background-color: #334155; height: 4px; border-radius: 2px; }")
-
-        # --- Section 1: Suggested Questions Card ---
+        # Pane 1 (Left 50%): Suggested Questions
         q_frame = QFrame()
         q_frame.setObjectName("card")
         q_frame.setStyleSheet("""
@@ -372,7 +482,7 @@ class CopilotDashboardWidget(QWidget):
         q_card_layout.setSpacing(4)
 
         q_head_layout = QHBoxLayout()
-        q_head = QLabel("💡 SUGGESTED QUESTIONS & INTERVENTIONS")
+        q_head = QLabel("💡 QUESTIONS TO ASK (IN-THE-MOMENT)")
         q_head.setStyleSheet("font-size: 11px; font-weight: bold; color: #38bdf8; letter-spacing: 0.5px;")
         q_head_layout.addWidget(q_head)
 
@@ -425,27 +535,103 @@ class CopilotDashboardWidget(QWidget):
             }
         """)
         q_card_layout.addWidget(self.questions_list)
-        right_splitter.addWidget(q_frame)
+        self.top_h_splitter.addWidget(q_frame)
 
-        # --- Section 2: Interactive Live Scratchpad ---
-        notes_frame = QFrame()
-        notes_frame.setObjectName("card")
-        notes_frame.setStyleSheet("""
+        # Pane 2 (Right 50%): Follow-up Suggestions & Action Items
+        f_frame = QFrame()
+        f_frame.setObjectName("card")
+        f_frame.setStyleSheet("""
             QFrame#card {
                 background-color: #1e293b;
                 border: 1px solid #334155;
                 border-radius: 6px;
             }
         """)
-        notes_layout = QVBoxLayout(notes_frame)
-        notes_layout.setContentsMargins(8, 6, 8, 6)
-        notes_layout.setSpacing(4)
+        f_card_layout = QVBoxLayout(f_frame)
+        f_card_layout.setContentsMargins(8, 6, 8, 6)
+        f_card_layout.setSpacing(4)
 
-        notes_head = QHBoxLayout()
-        notes_title = QLabel("📝 LIVE SCRATCHPAD (Notes & Addressed Points)")
-        notes_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #34d399; letter-spacing: 0.5px;")
-        notes_head.addWidget(notes_title)
-        notes_head.addStretch()
+        f_head_layout = QHBoxLayout()
+        f_head = QLabel("🎯 FOLLOW-UP SUGGESTIONS & ACTION ITEMS")
+        f_head.setStyleSheet("font-size: 11px; font-weight: bold; color: #a78bfa; letter-spacing: 0.5px;")
+        f_head_layout.addWidget(f_head)
+
+        self.f_count_badge = QLabel("0")
+        self.f_count_badge.setStyleSheet("""
+            QLabel {
+                background-color: #6b21a8;
+                color: #f3e8ff;
+                font-size: 10px;
+                font-weight: bold;
+                border-radius: 7px;
+                padding: 1px 6px;
+            }
+        """)
+        self.f_count_badge.setVisible(False)
+        f_head_layout.addWidget(self.f_count_badge)
+        f_head_layout.addStretch()
+
+        self.f_clear_btn = QPushButton("Clear All")
+        self.f_clear_btn.setToolTip("Clear all pending follow-up suggestions")
+        self.f_clear_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                color: #94a3b8;
+                font-size: 10px;
+                padding: 1px 6px;
+            }
+            QPushButton:hover {
+                background: #1e293b;
+                color: #f87171;
+                border-color: #7f1d1d;
+            }
+        """)
+        self.f_clear_btn.clicked.connect(self._clear_follow_up_suggestions)
+        self.f_clear_btn.setVisible(False)
+        f_head_layout.addWidget(self.f_clear_btn)
+        f_card_layout.addLayout(f_head_layout)
+
+        self.follow_ups_list = QListWidget()
+        self.follow_ups_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.follow_ups_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.follow_ups_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.follow_ups_list.setStyleSheet("""
+            QListWidget { background: transparent; border: none; }
+            QListWidget::item {
+                background-color: #0f172a; border: 1px solid #334155; border-radius: 6px;
+                margin-bottom: 5px;
+            }
+        """)
+        f_card_layout.addWidget(self.follow_ups_list)
+        self.top_h_splitter.addWidget(f_frame)
+
+        # Equal 50/50 proportion on top row
+        self.top_h_splitter.setSizes([500, 500])
+        self.main_v_splitter.addWidget(self.top_h_splitter)
+
+        # =========================================================================
+        # TIER 2 (MIDDLE): Full-Width Rolling Meeting Summary & Custom Scratchpad
+        # =========================================================================
+        summary_frame = QFrame()
+        summary_frame.setObjectName("card")
+        summary_frame.setStyleSheet("""
+            QFrame#card {
+                background-color: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 6px;
+            }
+        """)
+        summary_layout = QVBoxLayout(summary_frame)
+        summary_layout.setContentsMargins(8, 6, 8, 6)
+        summary_layout.setSpacing(4)
+
+        sum_head = QHBoxLayout()
+        sum_title = QLabel("📝 MEETING ROLLING SUMMARY & SCRATCHPAD")
+        sum_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #34d399; letter-spacing: 0.5px;")
+        sum_head.addWidget(sum_title)
+        sum_head.addStretch()
 
         self.open_notes_folder_btn = QPushButton("📁 Notes Folder")
         self.open_notes_folder_btn.setToolTip("Open recordings and meeting notes directory")
@@ -465,22 +651,47 @@ class CopilotDashboardWidget(QWidget):
             }
         """)
         self.open_notes_folder_btn.clicked.connect(self._open_notes_folder)
-        notes_head.addWidget(self.open_notes_folder_btn)
-        notes_layout.addLayout(notes_head)
+        sum_head.addWidget(self.open_notes_folder_btn)
+        summary_layout.addLayout(sum_head)
 
-        # Notes list with checkboxes
+        # Content horizontal split: Executive Synthesis Browser on left, Custom User Notes on right
+        middle_sub_splitter = QSplitter(Qt.Horizontal)
+        middle_sub_splitter.setStyleSheet("QSplitter::handle { background-color: #334155; width: 4px; border-radius: 2px; }")
+
+        # 1. Rolling Executive Summary Browser
+        self.summary_browser = QTextBrowser()
+        self.summary_browser.setOpenExternalLinks(True)
+        self.summary_browser.setStyleSheet("""
+            QTextBrowser {
+                background-color: #020617;
+                border: 1px solid #0f172a;
+                border-radius: 4px;
+                color: #f8fafc;
+                font-size: 12px;
+                line-height: 1.4;
+                padding: 6px;
+            }
+        """)
+        self._update_summary_browser_text()
+        middle_sub_splitter.addWidget(self.summary_browser)
+
+        # 2. Custom User Notes container
+        user_notes_container = QWidget()
+        un_layout = QVBoxLayout(user_notes_container)
+        un_layout.setContentsMargins(0, 0, 0, 0)
+        un_layout.setSpacing(4)
+
         self.notes_list = QListWidget()
         self.notes_list.setStyleSheet("""
-            QListWidget { background: transparent; border: none; }
+            QListWidget { background-color: #020617; border: 1px solid #0f172a; border-radius: 4px; }
             QListWidget::item {
-                background-color: #0f172a; border: 1px solid #334155; border-radius: 6px;
-                padding: 3px 6px; margin-bottom: 4px; color: #cbd5e1; font-size: 12px;
+                background-color: #0f172a; border: 1px solid #334155; border-radius: 4px;
+                padding: 3px 6px; margin: 2px; color: #cbd5e1; font-size: 11px;
             }
-            QListWidget::item:hover { background-color: #1e293b; }
         """)
-        notes_layout.addWidget(self.notes_list)
+        un_layout.addWidget(self.notes_list, 1)
 
-        # 2-line Add custom note input
+        # Add custom note row
         add_note_box = QHBoxLayout()
         add_note_box.setSpacing(6)
         self.add_note_input = TwoLineNoteEdit()
@@ -488,7 +699,7 @@ class CopilotDashboardWidget(QWidget):
         add_note_box.addWidget(self.add_note_input, 1)
 
         add_btn = QPushButton("Add Note")
-        add_btn.setFixedHeight(48)
+        add_btn.setFixedHeight(44)
         add_btn.setStyleSheet("""
             QPushButton {
                 background-color: #059669; color: white; border: none; border-radius: 4px;
@@ -498,17 +709,68 @@ class CopilotDashboardWidget(QWidget):
         """)
         add_btn.clicked.connect(self._add_custom_note)
         add_note_box.addWidget(add_btn)
-        notes_layout.addLayout(add_note_box)
+        un_layout.addLayout(add_note_box)
 
-        right_splitter.addWidget(notes_frame)
+        middle_sub_splitter.addWidget(user_notes_container)
+        middle_sub_splitter.setSizes([550, 450])
+        summary_layout.addWidget(middle_sub_splitter)
 
-        # Balanced proportions for right vertical splitter
-        right_splitter.setSizes([240, 220])
-        self.splitter.addWidget(right_splitter)
+        self.main_v_splitter.addWidget(summary_frame)
 
-        # Proportions: 45% Left (Transcript), 55% Right (Questions & Notes)
-        self.splitter.setSizes([450, 550])
-        root_layout.addWidget(self.splitter, 1)
+        # =========================================================================
+        # TIER 3 (BOTTOM): Full-Width Live Transcript Stream on the very bottom
+        # =========================================================================
+        transcript_frame = QFrame()
+        transcript_frame.setObjectName("card")
+        transcript_frame.setStyleSheet("""
+            QFrame#card {
+                background-color: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 6px;
+            }
+        """)
+        transcript_layout = QVBoxLayout(transcript_frame)
+        transcript_layout.setContentsMargins(8, 6, 8, 6)
+        transcript_layout.setSpacing(4)
+
+        tr_head = QHBoxLayout()
+        tr_title = QLabel("💬 LIVE TRANSCRIPT STREAM")
+        tr_title.setStyleSheet("font-size: 11px; font-weight: bold; color: #38bdf8; letter-spacing: 0.5px;")
+        tr_head.addWidget(tr_title)
+        tr_head.addStretch()
+
+        self.auto_scroll_chk = QCheckBox("Auto-scroll")
+        self.auto_scroll_chk.setChecked(True)
+        self.auto_scroll_chk.setStyleSheet("color: #94a3b8; font-size: 10px;")
+        tr_head.addWidget(self.auto_scroll_chk)
+
+        clear_tr_btn = QPushButton("Clear Feed")
+        clear_tr_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: none; color: #64748b; font-size: 10px; }
+            QPushButton:hover { color: #cbd5e1; }
+        """)
+        clear_tr_btn.clicked.connect(self._clear_transcript_feed)
+        tr_head.addWidget(clear_tr_btn)
+        transcript_layout.addLayout(tr_head)
+
+        self.ticker_box = QTextEdit()
+        self.ticker_box.setReadOnly(True)
+        self.ticker_box.setStyleSheet("""
+            QTextEdit {
+                background-color: #020617; border: 1px solid #0f172a; border-radius: 4px;
+                color: #e2e8f0; font-size: 11px; font-family: 'Consolas', 'Courier New', monospace;
+                line-height: 1.4;
+            }
+        """)
+        transcript_layout.addWidget(self.ticker_box)
+        self.main_v_splitter.addWidget(transcript_frame)
+
+        # Initial vertical sizes: Tier 1 (220px), Tier 2 (200px), Tier 3 (160px)
+        self.main_v_splitter.setSizes([220, 200, 160])
+        page_layout.addWidget(self.main_v_splitter, 1)
+
+        # Backwards compatibility reference
+        self.splitter = self.top_h_splitter
 
     def _quick_btn_style(self, bg_color: str) -> str:
         return f"""
@@ -518,6 +780,13 @@ class CopilotDashboardWidget(QWidget):
             }}
             QPushButton:hover {{ opacity: 0.9; }}
         """
+
+    def set_copilot_enabled(self, enabled: bool):
+        """Switches between active intelligence view and disabled placeholder banner."""
+        self.stack.setCurrentIndex(0 if enabled else 1)
+
+    def _request_enable_copilot(self):
+        self.enable_copilot_requested.emit()
 
     def _on_mode_combo_changed(self, index: int):
         mode = self.mode_combo.currentData()
@@ -561,9 +830,9 @@ class CopilotDashboardWidget(QWidget):
             self.memory.add_user_note(text)
             self._render_notes()
 
-    def _on_copy_question(self, question_text: str):
+    def _on_copy_text(self, text_to_copy: str):
         clipboard = QApplication.clipboard()
-        clipboard.setText(question_text)
+        clipboard.setText(text_to_copy)
         self.status_title.setText("COPIED TO CLIPBOARD!")
         QTimer.singleShot(1500, lambda: self.status_title.setText("LIVE MEETING COPILOT"))
 
@@ -575,6 +844,15 @@ class CopilotDashboardWidget(QWidget):
     def _on_dismiss_question(self, question_text: str):
         self.memory.mark_question_dismissed(question_text)
         self._render_questions()
+
+    def _on_mark_followup_done(self, task_text: str):
+        self.memory.mark_followup_done(task_text)
+        self._render_follow_ups()
+        self._update_summary_browser_text()
+
+    def _on_dismiss_followup(self, task_text: str):
+        self.memory.mark_followup_dismissed(task_text)
+        self._render_follow_ups()
 
     def _on_transcription_gui(self, channel: str, text: str, timestamp: float, turn_id: int):
         """Append to memory and update ticker display."""
@@ -589,9 +867,11 @@ class CopilotDashboardWidget(QWidget):
             scrollbar.setValue(scrollbar.maximum())
 
     def _on_agent_results_gui(self, results: dict):
-        """Refreshes suggested questions and notes cards."""
+        """Refreshes suggested questions, follow-ups, and summary."""
         self._render_questions()
+        self._render_follow_ups()
         self._render_notes()
+        self._update_summary_browser_text()
 
     def _on_quick_action_gui(self, title: str, text: str):
         """Displays quick-action response in notes."""
@@ -602,6 +882,11 @@ class CopilotDashboardWidget(QWidget):
         """Clears pending questions from memory and updates display."""
         self.memory.clear_suggested_questions(status="pending")
         self._render_questions()
+
+    def _clear_follow_up_suggestions(self):
+        """Clears pending follow-up suggestions from memory."""
+        self.memory.clear_follow_up_suggestions(status="pending")
+        self._render_follow_ups()
 
     def _render_questions(self):
         self.questions_list.clear()
@@ -616,7 +901,7 @@ class CopilotDashboardWidget(QWidget):
             item = QListWidgetItem(self.questions_list)
             widget = QuestionItemWidget(
                 q,
-                on_copy_cb=self._on_copy_question,
+                on_copy_cb=self._on_copy_text,
                 on_asked_cb=self._on_mark_asked,
                 on_dismiss_cb=self._on_dismiss_question
             )
@@ -624,27 +909,57 @@ class CopilotDashboardWidget(QWidget):
             self.questions_list.addItem(item)
             self.questions_list.setItemWidget(item, widget)
 
-    def _render_notes(self):
-        self.notes_list.blockSignals(True)
-        self.notes_list.clear()
+    def _render_follow_ups(self):
+        self.follow_ups_list.clear()
+        pending_items = [f for f in self.memory.follow_up_suggestions if f.status == "pending"]
         
-        # Render asked questions as checked items
-        asked_q = [q for q in self.memory.suggested_questions if q.status == "asked"]
-        for q in asked_q:
-            item = QListWidgetItem(f"[Asked] {q.question}")
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked)
+        count = len(pending_items)
+        self.f_count_badge.setText(f"{count} pending" if count > 0 else "0")
+        self.f_count_badge.setVisible(count > 0)
+        self.f_clear_btn.setVisible(count > 0)
+
+        for it in pending_items:
+            item = QListWidgetItem(self.follow_ups_list)
+            widget = FollowUpItemWidget(
+                it,
+                on_copy_cb=self._on_copy_text,
+                on_done_cb=self._on_mark_followup_done,
+                on_dismiss_cb=self._on_dismiss_followup
+            )
+            item.setSizeHint(widget.sizeHint())
+            self.follow_ups_list.addItem(item)
+            self.follow_ups_list.setItemWidget(item, widget)
+
+    def _render_notes(self):
+        self.notes_list.clear()
+        # Custom user notes (no checkboxes on regular notes)
+        for note in self.memory.user_notes:
+            item = QListWidgetItem(f"• {note}")
             self.notes_list.addItem(item)
 
-        # Render running notes
-        for note in self.memory.live_notes:
-            if not note.startswith("[Asked]"):
-                item = QListWidgetItem(note)
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Unchecked)
-                self.notes_list.addItem(item)
+    def _update_summary_browser_text(self):
+        topic = self.memory.rolling_summary.get("topic", "")
+        exec_sum = self.memory.rolling_summary.get("executive_summary", "")
+        decisions = self.memory.rolling_summary.get("key_decisions", [])
 
-        self.notes_list.blockSignals(False)
+        html_parts = []
+        if topic:
+            html_parts.append(f"<div style='font-size: 13px; font-weight: bold; color: #38bdf8; margin-bottom: 6px;'>📌 Agenda: {topic}</div>")
+        
+        html_parts.append("<div style='font-size: 12px; font-weight: bold; color: #94a3b8; margin-bottom: 3px;'>EXECUTIVE SUMMARY:</div>")
+        if exec_sum:
+            html_parts.append(f"<div style='color: #f8fafc; font-size: 12px; line-height: 1.4; margin-bottom: 8px;'>{exec_sum}</div>")
+        else:
+            html_parts.append("<div style='color: #64748b; font-style: italic; font-size: 11px; margin-bottom: 8px;'>Summary will synthesize as conversation progresses...</div>")
+
+        if decisions:
+            html_parts.append("<div style='font-size: 12px; font-weight: bold; color: #34d399; margin-bottom: 3px;'>KEY DECISIONS & CONSENSUS:</div>")
+            html_parts.append("<ul style='margin-top: 2px; margin-bottom: 6px; padding-left: 18px; color: #cbd5e1;'>")
+            for d in decisions:
+                html_parts.append(f"<li style='margin-bottom: 2px;'>{d}</li>")
+            html_parts.append("</ul>")
+
+        self.summary_browser.setHtml("".join(html_parts))
 
     def _on_manual_reset_clicked(self):
         """Manually resets session memory and clears displays."""
@@ -655,12 +970,17 @@ class CopilotDashboardWidget(QWidget):
         """Clears all UI elements in the widget for a clean session."""
         self.ticker_box.clear()
         self.questions_list.clear()
+        self.follow_ups_list.clear()
         self.notes_list.clear()
         self.q_count_badge.setText("0")
         self.q_count_badge.setVisible(False)
         self.q_clear_btn.setVisible(False)
+        self.f_count_badge.setText("0")
+        self.f_count_badge.setVisible(False)
+        self.f_clear_btn.setVisible(False)
         self.add_note_input.clear()
         self.adhoc_input.clear()
+        self._update_summary_browser_text()
 
     def update_status(self, recording: bool, paused: bool, meeting_mode: str, asr_name_or_key: str, notes_saved: bool = False):
         """Updates header dropdowns and status dot."""
@@ -675,14 +995,12 @@ class CopilotDashboardWidget(QWidget):
             status_text = "Status: Idle • Notes Saved 💾" if notes_saved else "Status: Idle"
             self.status_dot.setToolTip(status_text)
 
-        # Sync meeting mode combo safely
         self.mode_combo.blockSignals(True)
         mode_idx = self.mode_combo.findData(meeting_mode)
         if mode_idx >= 0:
             self.mode_combo.setCurrentIndex(mode_idx)
         self.mode_combo.blockSignals(False)
 
-        # Sync ASR combo safely
         self.asr_combo.blockSignals(True)
         asr_idx = self.asr_combo.findData(asr_name_or_key)
         if asr_idx < 0:

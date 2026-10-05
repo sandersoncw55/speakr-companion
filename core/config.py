@@ -120,6 +120,10 @@ class Settings:
 
     # Properties for easy access
     @property
+    def config_file(self) -> Path:
+        return self.settings_file
+
+    @property
     def servers(self) -> List[Dict[str, str]]:
         return self.data.get("servers", self.DEFAULT_SETTINGS["servers"])
 

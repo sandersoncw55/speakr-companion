@@ -14,16 +14,21 @@ from core.copilot.prompts import (
 class OfflineExtractiveEngine:
     """Zero-dependency, 100% offline heuristic intelligence engine.
     
-    Extracts questions, commitments, risks, and summaries from local transcript turns
+    Extracts rolling summaries, questions, commitments, and risks from local transcript turns
     without requiring any cloud API keys or external services.
     """
 
     ACTION_KEYWORDS = [
         "action item", "will do", "need to", "going to", "follow up", 
         "send", "review", "schedule", "assign", "check with", "make sure",
-        "i'll", "we'll", "take care of", "look into", "set up"
+        "i'll", "we'll", "take care of", "look into", "set up", "deploy", "update"
     ]
     
+    DECISION_KEYWORDS = [
+        "agreed", "decided", "decision", "consensus", "confirmed", "approved", 
+        "will proceed with", "going with", "settled on", "plan is"
+    ]
+
     RISK_KEYWORDS = [
         "risk", "delay", "issue", "problem", "blocker", "blocked", "fail", 
         "failed", "bug", "crash", "uncertain", "not sure", "concern",
@@ -31,16 +36,22 @@ class OfflineExtractiveEngine:
     ]
 
     def generate_periodic(self, turns: List[TranscriptTurn], live_notes: List[str]) -> Dict[str, Any]:
-        """Synthesizes questions, live notes, and action items from recent turns."""
+        """Synthesizes rolling summary, questions, and follow-ups from recent turns."""
         if not turns:
-            return {"suggested_questions": [], "live_notes": [], "action_items": []}
+            return {
+                "rolling_summary": {"topic": "", "executive_summary": "", "key_decisions": []},
+                "suggested_questions": [],
+                "follow_up_suggestions": [],
+                "live_notes": [],
+                "action_items": []
+            }
 
-        # Analyze the most recent window of turns (last ~10 turns)
-        recent_turns = turns[-12:]
+        recent_turns = turns[-14:]
         
         extracted_questions = []
-        action_items = []
-        key_statements = []
+        follow_up_items = []
+        key_decisions = []
+        substantive_statements = []
 
         for turn in recent_turns:
             text = turn.text.strip()
@@ -58,15 +69,25 @@ class OfflineExtractiveEngine:
                     if len(s_clean) > 10 and s_clean not in extracted_questions:
                         extracted_questions.append(s_clean)
 
-                # Check for action items
-                if any(kw in s_lower for kw in self.ACTION_KEYWORDS):
-                    action_fmt = f"[{speaker}] {s_clean}"
-                    if action_fmt not in action_items:
-                        action_items.append(action_fmt)
+                # Check for decisions
+                if any(kw in s_lower for kw in self.DECISION_KEYWORDS):
+                    if len(s_clean) > 15 and s_clean not in key_decisions:
+                        key_decisions.append(s_clean)
 
-                # Collect substantive statements for notes
-                if len(s_clean) > 25 and not s_clean.endswith("?"):
-                    key_statements.append((speaker, s_clean))
+                # Check for action items / follow-ups
+                if any(kw in s_lower for kw in self.ACTION_KEYWORDS):
+                    owner = "You" if "you" in speaker.lower() else "Unassigned"
+                    # Try to parse owner if speaker is named or mentioned
+                    if "i'll" in s_lower or "i will" in s_lower:
+                        owner = speaker.replace("[", "").replace("]", "")
+                    follow_up_items.append({
+                        "task": s_clean,
+                        "owner": owner
+                    })
+
+                # Collect substantive statements for narrative synthesis
+                if len(s_clean) > 20 and not s_clean.endswith("?"):
+                    substantive_statements.append((speaker, s_clean))
 
         # Formulate suggested questions
         suggested_questions = []
@@ -75,14 +96,14 @@ class OfflineExtractiveEngine:
         for eq in extracted_questions[:2]:
             suggested_questions.append({
                 "question": f"Follow up: {eq}",
-                "rationale": "Clarify unaddressed question raised in recent dialogue"
+                "rationale": "Clarify question raised in recent dialogue"
             })
             
         # 2. Contextual questions based on actions / commitments
-        if action_items and len(suggested_questions) < 3:
-            first_act = action_items[0]
+        if follow_up_items and len(suggested_questions) < 3:
+            first_act = follow_up_items[0]["task"]
             suggested_questions.append({
-                "question": f"Regarding '{first_act[:60]}...', what is the validation criteria and expected delivery window?",
+                "question": f"Regarding '{first_act[:55]}...', what is the validation criteria and cutover window?",
                 "rationale": "Lock down commitment scope and acceptance criteria"
             })
             
@@ -98,18 +119,35 @@ class OfflineExtractiveEngine:
                 "rationale": "Ensure failure recovery plan is confirmed"
             })
 
-        # Formulate live notes from key statements
-        notes = []
-        for speaker, stmt in key_statements[-4:]:
-            # Format as concise note
-            note_str = f"[{speaker}] {stmt}"
-            if note_str not in notes and note_str not in live_notes:
-                notes.append(note_str)
+        # Synthesize rolling summary narrative
+        topic = "Meeting Discussion"
+        if substantive_statements:
+            # Topic inference
+            first_stmt = substantive_statements[0][1]
+            topic_match = re.search(r'(?:about|on|regarding|for)\s+([A-Za-z0-9_\-\s]{4,30})', first_stmt, re.IGNORECASE)
+            if topic_match:
+                topic = topic_match.group(1).strip().capitalize()
+            else:
+                topic = first_stmt[:40].strip() + ("..." if len(first_stmt) > 40 else "")
+
+            # Cohesive prose summary
+            sentences_pool = [s[1] for s in substantive_statements[-4:]]
+            exec_summary = " ".join(sentences_pool)
+            if len(exec_summary) > 350:
+                exec_summary = exec_summary[:347] + "..."
+        else:
+            exec_summary = "Discussion in progress. Awaiting speech turns for synthesis."
 
         return {
+            "rolling_summary": {
+                "topic": topic,
+                "executive_summary": exec_summary,
+                "key_decisions": key_decisions[:3]
+            },
             "suggested_questions": suggested_questions[:3],
-            "live_notes": notes[:3],
-            "action_items": action_items[:4]
+            "follow_up_suggestions": follow_up_items[:4],
+            "live_notes": [f"{s[0]}: {s[1]}" for s in substantive_statements[-3:]],
+            "action_items": [f"[{it['owner']}] {it['task']}" for it in follow_up_items[:4]]
         }
 
     def generate_quick_action(self, prompt_key_or_text: str, turns: List[TranscriptTurn]) -> str:
@@ -121,23 +159,25 @@ class OfflineExtractiveEngine:
         recent_turns = turns[-15:]
 
         if "catch" in p_lower or "summarize" in p_lower:
-            # Catch up / summarize last 2 mins
             lines = ["⏱️ **Recent Meeting Summary:**\n"]
             for t in recent_turns[-8:]:
                 lines.append(f"• **{t.speaker_label}** ({t.formatted_time}): {t.text}")
             return "\n".join(lines)
 
         elif "ask" in p_lower or "what_to_ask" in p_lower:
-            # What to ask right now
             periodic = self.generate_periodic(turns, [])
             q_list = periodic.get("suggested_questions", [])
             lines = ["💡 **Suggested Questions for Right Now:**\n"]
             for i, q in enumerate(q_list, 1):
-                lines.append(f"{i}. {q}")
+                if isinstance(q, dict):
+                    q_text = q.get("question", "")
+                    rat = q.get("rationale", "")
+                    lines.append(f"{i}. **{q_text}**" + (f" *(Rationale: {rat})*" if rat else ""))
+                else:
+                    lines.append(f"{i}. {q}")
             return "\n".join(lines)
 
-        elif "owner" in p_lower or "clarify_ownership" in p_lower:
-            # Clarify ownership
+        elif "owner" in p_lower or "clarify_ownership" in p_lower or "action" in p_lower:
             actions = []
             for t in recent_turns:
                 for kw in self.ACTION_KEYWORDS:
@@ -150,7 +190,6 @@ class OfflineExtractiveEngine:
                 return "🎯 **Ownership Check:** No explicit task assignments detected in recent turns. Consider asking: *'Who has the action item to drive this forward?'*"
 
         elif "risk" in p_lower or "spot_risks" in p_lower:
-            # Spot risks
             risks = []
             for t in recent_turns:
                 for kw in self.RISK_KEYWORDS:
@@ -174,7 +213,6 @@ class OfflineExtractiveEngine:
             if matched:
                 return f"🔍 **Mentions relevant to '{prompt_key_or_text}':**\n\n" + "\n".join(matched[-6:])
             else:
-                # Fallback to recent context
                 lines = [f"🔍 No exact keyword match for '{prompt_key_or_text}'. Recent context:\n"]
                 for t in recent_turns[-4:]:
                     lines.append(f"• **{t.speaker_label}**: {t.text}")
@@ -196,11 +234,11 @@ class CopilotAgent:
         self.offline_engine = OfflineExtractiveEngine()
         
         # Configuration
-        self.llm_provider = "offline"  # "offline", "openrouter", "gemini", "ollama"
+        self.llm_provider = "offline"  # "offline", "openrouter", "gemini", "ollama", "lm_studio"
         self.api_key = ""
         self.model_name = "openai/gpt-4o-mini"
         self.custom_endpoint: Optional[str] = None
-        self.privacy_mode = False  # If True, enforces local Ollama or offline fallback
+        self.privacy_mode = False
         self.active_tag: Optional[str] = None
 
         # State tracking
@@ -249,7 +287,6 @@ class CopilotAgent:
             now = time.time()
             if now - last_check_time >= self.cadence_seconds:
                 last_check_time = now
-                # Check if there are new turns
                 latest_turns = self.memory.turns
                 if latest_turns and latest_turns[-1].turn_id > self.last_analyzed_turn_id:
                     self.last_analyzed_turn_id = latest_turns[-1].turn_id
@@ -273,7 +310,7 @@ class CopilotAgent:
         try:
             if self._is_offline_mode():
                 response_json = self.offline_engine.generate_periodic(
-                    self.memory.turns, self.memory.live_notes
+                    self.memory.turns, self.memory.user_notes
                 )
             else:
                 try:
@@ -287,29 +324,34 @@ class CopilotAgent:
                 except Exception as ex:
                     print(f"[CopilotAgent] Online analysis failed ({ex}), falling back to offline engine.")
                     response_json = self.offline_engine.generate_periodic(
-                        self.memory.turns, self.memory.live_notes
+                        self.memory.turns, self.memory.user_notes
                     )
             
             if response_json and isinstance(response_json, dict):
-                # Update memory
+                # 1. Update Rolling Summary
+                summary_data = response_json.get("rolling_summary", {})
+                if summary_data and isinstance(summary_data, dict):
+                    self.memory.set_rolling_summary(summary_data)
+
+                # 2. Update Suggested Questions
                 q_list = response_json.get("suggested_questions", [])
                 if q_list:
                     self.memory.set_suggested_questions(q_list)
                 
-                notes_list = response_json.get("live_notes", [])
-                if notes_list:
-                    current_notes = list(self.memory.live_notes)
-                    for n in notes_list:
-                        if n not in current_notes:
-                            current_notes.append(n)
-                    self.memory.update_live_notes(current_notes)
+                # 3. Update Follow-up Suggestions / Action Items
+                follow_ups = response_json.get("follow_up_suggestions", response_json.get("action_items", []))
+                if follow_ups:
+                    self.memory.set_follow_up_suggestions(follow_ups)
 
-                # Emit to UI
+                # Emit structured results to UI
                 self.on_results_callback({
                     "type": "periodic",
+                    "rolling_summary": self.memory.rolling_summary,
                     "questions": self.memory.suggested_questions,
-                    "notes": self.memory.live_notes,
-                    "action_items": response_json.get("action_items", [])
+                    "follow_ups": self.memory.follow_up_suggestions,
+                    "user_notes": self.memory.user_notes,
+                    "notes": self.memory.user_notes,
+                    "action_items": self.memory.follow_up_suggestions
                 })
         except Exception as e:
             print(f"[CopilotAgent] Error in periodic analysis: {e}")
@@ -326,7 +368,6 @@ class CopilotAgent:
 
     def _execute_quick_prompt(self, prompt_key_or_text: str):
         """Worker executing quick-action prompt."""
-        # Resolve prompt instruction & title
         if prompt_key_or_text in DEFAULT_QUICK_PROMPTS:
             instruction = DEFAULT_QUICK_PROMPTS[prompt_key_or_text]["instruction"]
             title = DEFAULT_QUICK_PROMPTS[prompt_key_or_text]["title"]
@@ -334,7 +375,6 @@ class CopilotAgent:
             instruction = prompt_key_or_text
             title = "Custom Query"
 
-        # Check offline mode
         if self._is_offline_mode():
             response_text = self.offline_engine.generate_quick_action(
                 prompt_key_or_text, self.memory.turns
@@ -374,13 +414,12 @@ class CopilotAgent:
     def _call_llm(self, system_prompt: str, user_content: str, require_json: bool = True) -> Optional[Dict[str, Any]]:
         """Invokes configured LLM and parses JSON output."""
         if self._is_offline_mode():
-            return self.offline_engine.generate_periodic(self.memory.turns, self.memory.live_notes)
+            return self.offline_engine.generate_periodic(self.memory.turns, self.memory.user_notes)
 
         raw_text = self._call_llm_text(system_prompt, user_content, json_mode=require_json)
         if not raw_text:
             return None
 
-        # Clean JSON markdown fences if present
         clean_text = raw_text.strip()
         if clean_text.startswith("```json"):
             clean_text = clean_text[7:]
@@ -436,7 +475,6 @@ class CopilotAgent:
                 raise RuntimeError(f"LM Studio returned HTTP {resp.status_code}: {resp.text}")
 
         elif self.llm_provider == "ollama" or (self.privacy_mode and self.llm_provider not in ("openrouter", "gemini")):
-            # Local Ollama
             endpoint = self.custom_endpoint or "http://localhost:11434/api/generate"
             payload = {
                 "model": self.model_name or "llama3.2",
@@ -520,15 +558,7 @@ class CopilotAgent:
 
 
 def fetch_lm_studio_models(endpoint: str, api_key: str = "") -> List[str]:
-    """Queries LM Studio / OpenAI-compatible endpoint for available model names.
-    
-    Args:
-        endpoint: Base URL (e.g. 'http://localhost:1234', 'http://localhost:1234/v1', or 'http://192.168.0.88:1234/v1/models')
-        api_key: Optional bearer token
-        
-    Returns:
-        List of model IDs (e.g. ['qwen2.5-coder-7b-instruct', 'llama-3.2-3b-instruct'])
-    """
+    """Queries LM Studio / OpenAI-compatible endpoint for available model names."""
     clean_ep = endpoint.strip().rstrip("/")
     if not clean_ep:
         clean_ep = "http://localhost:1234/v1"
@@ -557,4 +587,3 @@ def fetch_lm_studio_models(endpoint: str, api_key: str = "") -> List[str]:
                     models.append(item)
             return sorted(models)
         raise RuntimeError(f"LM Studio returned HTTP {resp.status_code}: {resp.text}")
-

@@ -19,7 +19,7 @@ class VolumeMeter(QWidget):
         self.decay_timer.timeout.connect(self._decay_peak)
         self.decay_timer.start(50)  # 20 FPS decay updates
         
-        self.setMinimumHeight(24)
+        self.setMinimumHeight(26)
 
     def set_level(self, db: float) -> None:
         """Set the current decibel level."""
@@ -31,7 +31,6 @@ class VolumeMeter(QWidget):
     def _decay_peak(self) -> None:
         """Slowly decay the peak level marker."""
         if self.peak_level > self.min_db:
-            # Drop by 0.5 dB per tick
             self.peak_level = max(self.min_db, self.peak_level - 0.5)
             self.update()
 
@@ -43,38 +42,39 @@ class VolumeMeter(QWidget):
         height = self.height()
         
         # Draw background track
-        track_color = QColor(45, 45, 45)
+        track_color = QColor(15, 23, 42)  # Dark slate #0f172a
         painter.setBrush(QBrush(track_color))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(0, 0, width, height, 4, 4)
+        painter.setPen(QPen(QColor(51, 65, 85), 1))  # Border #334155
+        painter.drawRoundedRect(0, 0, width - 1, height - 1, 4, 4)
         
         # Calculate percentage filled
         range_db = self.max_db - self.min_db
         fill_ratio = (self.db_level - self.min_db) / range_db
         fill_ratio = max(0.0, min(1.0, fill_ratio))
-        fill_width = int(width * fill_ratio)
+        fill_width = int((width - 2) * fill_ratio)
         
         if fill_width > 0:
-            # Draw gradient bar (Green -> Yellow -> Red)
+            # Draw gradient bar (Emerald -> Amber -> Crimson)
             gradient = QLinearGradient(0, 0, width, 0)
-            gradient.setColorAt(0.0, QColor(46, 204, 113))   # Green
-            gradient.setColorAt(0.7, QColor(241, 196, 15))   # Yellow
-            gradient.setColorAt(0.9, QColor(231, 76, 60))    # Red
+            gradient.setColorAt(0.0, QColor(16, 185, 129))  # Emerald #10b981
+            gradient.setColorAt(0.7, QColor(245, 158, 11))  # Amber #f59e0b
+            gradient.setColorAt(0.9, QColor(239, 68, 68))   # Crimson #ef4444
             
             painter.setBrush(QBrush(gradient))
-            painter.drawRoundedRect(0, 0, fill_width, height, 4, 4)
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(1, 1, fill_width, height - 2, 3, 3)
             
         # Draw Peak Marker
         peak_ratio = (self.peak_level - self.min_db) / range_db
         peak_ratio = max(0.0, min(1.0, peak_ratio))
-        peak_x = int(width * peak_ratio)
+        peak_x = int((width - 2) * peak_ratio)
         
         if peak_x > 0:
-            painter.setPen(QPen(QColor(255, 255, 255, 180), 2))
+            painter.setPen(QPen(QColor(255, 255, 255, 220), 2))
             painter.drawLine(peak_x, 2, peak_x, height - 2)
             
         # Draw text overlay
-        painter.setPen(QColor(255, 255, 255))
+        painter.setPen(QColor(248, 250, 252))  # #f8fafc
         font = painter.font()
         font.setPointSize(8)
         font.setBold(True)
@@ -105,6 +105,13 @@ class TagSelector(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         
         self.list_widget = QListWidget(self)
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                background-color: #0f172a;
+                border: 1px solid #334155;
+                border-radius: 4px;
+            }
+        """)
         layout.addWidget(self.list_widget)
 
     def set_tags(self, tags: List[Dict[str, Any]]) -> None:
@@ -130,12 +137,13 @@ class TagSelector(QWidget):
             # Checkbox
             checkbox = QCheckBox(name)
             checkbox.setProperty("tag_id", tag_id)
+            checkbox.setStyleSheet("color: #f8fafc; font-size: 12px;")
             container_layout.addWidget(checkbox)
             
             # Color badge
             badge = QLabel()
             badge.setFixedSize(12, 12)
-            badge.setStyleSheet(f"background-color: {color_hex}; border-radius: 6px; border: 1px solid #454545;")
+            badge.setStyleSheet(f"background-color: {color_hex}; border-radius: 6px; border: 1px solid #475569;")
             container_layout.addWidget(badge)
             
             # Stretch spacer

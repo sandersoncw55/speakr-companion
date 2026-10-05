@@ -10,6 +10,7 @@ from core.recorder import AudioRecorder
 from core.uploader import AudioUploader
 from gui.main_window import MainWindow
 from gui.tray_icon import SystemTrayManager
+from gui.theme import GLOBAL_APP_STYLESHEET
 
 def main():
     # Set explicit AppUserModelID so Windows taskbar displays our custom icon
@@ -21,6 +22,9 @@ def main():
     # Windows 10/11 high DPI scaling is native in Qt 6
     app = QApplication(sys.argv)
     app.setWindowIcon(get_app_icon())
+    
+    # Apply Global Dark Slate Theme across all windows, tabs, tables, and dialogs
+    app.setStyleSheet(GLOBAL_APP_STYLESHEET)
     
     # Ensure app doesn't exit when main window is hidden (minimized to tray)
     app.setQuitOnLastWindowClosed(False)
@@ -75,7 +79,7 @@ def main():
         tray_manager.update_menu_state()
         tray_manager.show_notification(
             title="Recording Started",
-            message=f"Capturing active session..."
+            message="Capturing active session..."
         )
 
     def stop_rec_wrapper(*args, **kwargs):

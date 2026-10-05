@@ -41,9 +41,42 @@ class ServerDialog(QDialog):
     def __init__(self, server_data: Optional[Dict[str, str]] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("Speakr Server Configuration")
-        self.setMinimumWidth(350)
+        self.setMinimumWidth(380)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0b0f19;
+                color: #f8fafc;
+            }
+            QLabel {
+                color: #cbd5e1;
+                font-weight: 500;
+            }
+            QLineEdit {
+                background-color: #0f172a;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding: 6px;
+                color: #f8fafc;
+            }
+            QLineEdit:focus {
+                border: 1px solid #38bdf8;
+            }
+            QPushButton {
+                background-color: #1e293b;
+                color: #f8fafc;
+                border: 1px solid #475569;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+            }
+        """)
         
         layout = QFormLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
         
         self.name_input = QLineEdit()
         self.url_input = QLineEdit()
@@ -313,6 +346,12 @@ class MainWindow(QMainWindow):
 
         bar_layout.addStretch()
 
+        # Copilot ON/OFF Toggle Button
+        self.copilot_toggle_btn = QPushButton()
+        self.copilot_toggle_btn.clicked.connect(self._toggle_copilot_enabled_btn_clicked)
+        self._update_copilot_toggle_state()
+        bar_layout.addWidget(self.copilot_toggle_btn)
+
         # Record Button
         self.record_btn = QPushButton("⏺ Start Recording")
         self.record_btn.setStyleSheet("""
@@ -401,6 +440,73 @@ class MainWindow(QMainWindow):
         bar_layout.addWidget(self.skip_cooldown_btn)
 
         parent_layout.addWidget(self.static_control_frame)
+
+    def _update_copilot_toggle_state(self) -> None:
+        """Synchronizes copilot toggle button state with settings and dashboard widget."""
+        enabled = self.settings.copilot_enabled
+        if enabled:
+            self.copilot_toggle_btn.setText("🤖 Copilot: ON")
+            self.copilot_toggle_btn.setToolTip("Live Copilot is Enabled (Click to Turn Off)")
+            self.copilot_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #065f46;
+                    color: #a7f3d0;
+                    border: 1px solid #059669;
+                    font-weight: bold;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #047857;
+                }
+            """)
+        else:
+            self.copilot_toggle_btn.setText("🤖 Copilot: OFF")
+            self.copilot_toggle_btn.setToolTip("Live Copilot is Disabled (Click to Turn On)")
+            self.copilot_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #1e293b;
+                    color: #94a3b8;
+                    border: 1px solid #334155;
+                    font-weight: bold;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #334155;
+                    color: #f8fafc;
+                }
+            """)
+
+        if hasattr(self, "pref_copilot_chk") and self.pref_copilot_chk:
+            self.pref_copilot_chk.blockSignals(True)
+            self.pref_copilot_chk.setChecked(enabled)
+            self.pref_copilot_chk.blockSignals(False)
+
+        if hasattr(self, "hud") and self.hud:
+            self.hud.set_copilot_enabled(enabled)
+
+    def _toggle_copilot_enabled_btn_clicked(self) -> None:
+        """Handles user click on static control bar Copilot toggle."""
+        self.settings.copilot_enabled = not self.settings.copilot_enabled
+        self._update_copilot_toggle_state()
+        self._log(f"Live Copilot enabled set to: {self.settings.copilot_enabled}")
+        
+        # If toggled during an active recording, handle audio tap callback
+        if self.recorder.is_recording:
+            if self.settings.copilot_enabled:
+                self._start_copilot_session()
+            else:
+                self.recorder.audio_tap_callback = None
+                if self.copilot_agent:
+                    self.copilot_agent.stop()
+
+    def _enable_copilot_from_hud(self) -> None:
+        """Triggered from Copilot dashboard banner [Turn On Copilot]."""
+        if not self.settings.copilot_enabled:
+            self._toggle_copilot_enabled_btn_clicked()
 
     def _update_recording_controls_visibility(self) -> None:
         """Contextually updates button visibility, labels, and styles across all states."""
@@ -1086,6 +1192,15 @@ class MainWindow(QMainWindow):
         tab_copilot = QWidget()
         tab_copilot_layout = QVBoxLayout(tab_copilot)
 
+        # Master Live Copilot Enable Checkbox
+        enable_group = QGroupBox("Copilot Activation")
+        enable_layout = QVBoxLayout(enable_group)
+        self.pref_copilot_chk = QCheckBox("Enable Live Meeting Copilot & AI Synthesis Engine")
+        self.pref_copilot_chk.setChecked(self.settings.copilot_enabled)
+        self.pref_copilot_chk.toggled.connect(self._pref_copilot_chk_toggled)
+        enable_layout.addWidget(self.pref_copilot_chk)
+        tab_copilot_layout.addWidget(enable_group)
+
         # Speech Recognition (ASR) Engine Group
         asr_group = QGroupBox("Live Speech Recognition (ASR) Engine")
         self.asr_form = QFormLayout(asr_group)
@@ -1261,6 +1376,20 @@ class MainWindow(QMainWindow):
         self.llm_form.addRow("", self.privacy_mode_chk)
 
         tab_copilot_layout.addWidget(llm_group)
+
+        # Storage & Persistence Info Banner
+        profile_info_group = QGroupBox("User Profile & Settings Persistence")
+        profile_layout = QVBoxLayout(profile_info_group)
+        profile_path = self.settings.config_file
+        profile_lbl = QLabel(
+            f"📁 <b>Windows AppData Path:</b> <code style='color: #38bdf8;'>{profile_path}</code><br>"
+            f"Settings, server credentials, and recording histories are stored in your Windows user profile and persist across software updates."
+        )
+        profile_lbl.setWordWrap(True)
+        profile_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px;")
+        profile_layout.addWidget(profile_lbl)
+        tab_copilot_layout.addWidget(profile_info_group)
+
         tab_copilot_layout.addStretch()
 
         self.pref_subtabs.addTab(tab_copilot, "Live Copilot & ASR")
@@ -1768,7 +1897,11 @@ class MainWindow(QMainWindow):
 
     def _copilot_toggle_changed(self, checked: bool) -> None:
         self.settings.copilot_enabled = checked
-        self._log(f"Live Copilot HUD enabled: {checked}")
+        self._update_copilot_toggle_state()
+        self._log(f"Live Copilot enabled set to: {checked}")
+
+    def _pref_copilot_chk_toggled(self, checked: bool) -> None:
+        self._copilot_toggle_changed(checked)
 
     def _on_lm_studio_type_changed(self, index: int) -> None:
         stype = self.lm_studio_type_combo.currentData()
@@ -2021,6 +2154,8 @@ class MainWindow(QMainWindow):
             )
             self.hud.meeting_mode_changed.connect(self._on_hud_meeting_mode_changed)
             self.hud.asr_provider_changed.connect(self._on_hud_asr_provider_changed)
+            self.hud.enable_copilot_requested.connect(self._enable_copilot_from_hud)
+            self.hud.set_copilot_enabled(self.settings.copilot_enabled)
             self.copilot_widget = self.hud
 
     def _on_hud_meeting_mode_changed(self, mode: str) -> None:

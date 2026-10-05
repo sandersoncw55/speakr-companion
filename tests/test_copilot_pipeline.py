@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import time
 from pathlib import Path
 import numpy as np
-from core.copilot.memory import CopilotMemory, SuggestedQuestion
+from core.copilot.memory import CopilotMemory, SuggestedQuestion, FollowUpItem
 from core.copilot.prompts import get_periodic_prompt, DEFAULT_QUICK_PROMPTS
 from core.copilot.segmenter import VADSegmenter, AudioSegment
 from core.asr.manager import ASRManager
@@ -25,7 +25,17 @@ def test_memory_and_scratchpad():
     assert t1.speaker_label == "[You]"
     assert t2.speaker_label == "[Call Participants]"
 
-    # 2. Suggested questions & user interactive status
+    # 2. Set Rolling Summary
+    mem.set_rolling_summary({
+        "topic": "SAN Controller Firmware Rollback",
+        "executive_summary": "The team is finalizing cutover precautions for SAN storage nodes before deploying firmware v3.4.1.",
+        "key_decisions": ["Proceed with snapshot validation at 2 AM maintenance window."]
+    })
+    assert mem.rolling_summary["topic"] == "SAN Controller Firmware Rollback"
+    assert "cutover precautions" in mem.rolling_summary["executive_summary"]
+    assert len(mem.rolling_summary["key_decisions"]) == 1
+
+    # 3. Suggested questions & user interactive status
     mem.set_suggested_questions([
         {"question": "Who is the primary on-call engineer?", "rationale": "Accountability"},
         {"question": "What is the maintenance window cutover time?", "rationale": "SLA compliance"}
@@ -33,19 +43,33 @@ def test_memory_and_scratchpad():
     assert len(mem.suggested_questions) == 2
     assert mem.suggested_questions[0].status == "pending"
 
-    # 3. User marks question asked
+    # 4. Follow-up suggestions / Action items
+    mem.set_follow_up_suggestions([
+        {"task": "Verify secondary SAN node heartbeat", "owner": "Chuck"},
+        {"task": "Update Datadog alerting dashboard", "owner": "Dave"}
+    ])
+    assert len(mem.follow_up_suggestions) == 2
+    assert mem.follow_up_suggestions[0].status == "pending"
+
+    # 5. User marks question asked and action item done
     mem.mark_question_asked("Who is the primary on-call engineer?")
     assert mem.suggested_questions[0].status == "asked"
-    assert any("[Asked] Who is the primary on-call engineer?" in n for n in mem.live_notes)
 
-    # 4. User adds manual note
+    mem.mark_followup_done("Verify secondary SAN node heartbeat")
+    assert mem.follow_up_suggestions[0].status == "done"
+
+    # 6. User adds manual note
     mem.add_user_note("Chuck confirmed firmware 3.4.1 snapshot ready.")
-    assert len(mem.live_notes) >= 2
+    assert len(mem.user_notes) >= 1
 
-    # 5. Verify Markdown serialization
+    # 7. Verify Markdown serialization
     md = mem.get_scratchpad_markdown()
+    assert "SAN Controller Firmware Rollback" in md
+    assert "The team is finalizing cutover precautions" in md
+    assert "Proceed with snapshot validation" in md
+    assert "- [x] Verify secondary SAN node heartbeat (@Chuck)" in md
+    assert "- [ ] Update Datadog alerting dashboard (@Dave)" in md
     assert "Who is the primary on-call engineer?" in md
-    assert "[x]" in md
     assert "Chuck confirmed firmware 3.4.1 snapshot ready." in md
 
     print("[OK] CopilotMemory passed.")
@@ -55,6 +79,8 @@ def test_prompts_and_tag_personas():
     cab_prompt = get_periodic_prompt("cab-meeting")
     assert "CHANGE ADVISORY BOARD" in cab_prompt
     assert "rollback" in cab_prompt.lower()
+    assert "rolling_summary" in cab_prompt
+    assert "follow_up_suggestions" in cab_prompt
 
     bridge_prompt = get_periodic_prompt("bridge-call-troubleshooting")
     assert "INCIDENT MANAGEMENT" in bridge_prompt
@@ -131,11 +157,11 @@ def test_offline_copilot_engine():
     
     # 1. Periodic offline generation
     res = engine.generate_periodic(mem.turns, [])
+    assert "rolling_summary" in res
     assert "suggested_questions" in res
     assert len(res["suggested_questions"]) > 0
-    assert "live_notes" in res
-    assert "action_items" in res
-    assert len(res["action_items"]) > 0
+    assert "follow_up_suggestions" in res
+    assert len(res["follow_up_suggestions"]) > 0
     
     # 2. Quick actions offline
     summary = engine.generate_quick_action("catch_me_up", mem.turns)
@@ -168,7 +194,7 @@ def test_offline_copilot_engine():
     print("[OK] OfflineExtractiveEngine and CopilotAgent offline fallback passed.")
 
 def test_hud_controls_and_splitter():
-    print("Testing CopilotDashboardWidget and 2-column / 3-pane responsive layout...")
+    print("Testing CopilotDashboardWidget 3-Tier Resizable Layout & Stacked Views...")
     from PySide6.QtWidgets import QApplication
     from gui.hud import CopilotDashboardWidget, TwoLineNoteEdit
     
@@ -190,8 +216,24 @@ def test_hud_controls_and_splitter():
     assert widget.asr_combo.findData("local") >= 0
     assert widget.asr_combo.findData("mac_lan") >= 0
     
-    # Responsive Splitter check
-    assert widget.splitter.count() == 2
+    # 3-Tier Master Vertical Splitter check
+    assert hasattr(widget, "main_v_splitter")
+    assert widget.main_v_splitter.count() == 3
+    
+    # Tier 1: Horizontal Splitter (Questions + Follow-ups side-by-side)
+    assert hasattr(widget, "top_h_splitter")
+    assert widget.top_h_splitter.count() == 2
+    assert hasattr(widget, "questions_list")
+    assert hasattr(widget, "follow_ups_list")
+    
+    # Tier 2: Rolling Summary Browser & Scratchpad
+    assert hasattr(widget, "summary_browser")
+    assert hasattr(widget, "notes_list")
+    assert hasattr(widget, "add_note_input")
+    
+    # Tier 3: Bottom Live Transcript Feed
+    assert hasattr(widget, "ticker_box")
+    assert hasattr(widget, "auto_scroll_chk")
     
     # Quick action buttons check
     assert hasattr(widget, "btn_ask")
@@ -206,7 +248,7 @@ def test_hud_controls_and_splitter():
     assert isinstance(widget.add_note_input, TwoLineNoteEdit)
     widget.add_note_input.setPlainText("Test custom note item")
     widget._add_custom_note()
-    assert "Test custom note item" in mem.live_notes
+    assert "Test custom note item" in mem.user_notes
     
     # Test questions count badge and clear button
     widget.show()
@@ -219,14 +261,32 @@ def test_hud_controls_and_splitter():
     assert widget.q_clear_btn.isVisible() is True
     assert "2 pending" in widget.q_count_badge.text()
     
-    # Test Clear button
+    # Test follow-ups count badge and clear button
+    mem.set_follow_up_suggestions([
+        {"task": "HUD Action 1", "owner": "Chuck"}
+    ])
+    widget._render_follow_ups()
+    assert widget.f_count_badge.isVisible() is True
+    assert widget.f_clear_btn.isVisible() is True
+    assert "1 pending" in widget.f_count_badge.text()
+
+    # Test Clear buttons
     widget._clear_suggested_questions()
     assert widget.q_count_badge.isVisible() is False
-    assert widget.q_clear_btn.isVisible() is False
-    assert len(mem.suggested_questions) == 0
+    assert len([q for q in mem.suggested_questions if q.status == "pending"]) == 0
+
+    widget._clear_follow_up_suggestions()
+    assert widget.f_count_badge.isVisible() is False
+    assert len([f for f in mem.follow_up_suggestions if f.status == "pending"]) == 0
+
+    # Test Enabled / Disabled View Toggle
+    widget.set_copilot_enabled(False)
+    assert widget.stack.currentIndex() == 1  # Disabled view
+    widget.set_copilot_enabled(True)
+    assert widget.stack.currentIndex() == 0  # Active view
 
     widget.close()
-    print("[OK] CopilotDashboardWidget and 2-column / 3-pane responsive layout passed.")
+    print("[OK] CopilotDashboardWidget 3-Tier Resizable Layout & Stacked Views passed.")
 
 def test_suggested_questions_accumulation():
     print("Testing Suggested Questions Accumulation & Deduplication across cycles...")
@@ -268,7 +328,6 @@ def test_suggested_questions_accumulation():
 
     # Test clear_suggested_questions with "pending" filter
     mem.clear_suggested_questions(status="pending")
-    # Asked question should remain!
     assert len(mem.suggested_questions) == 1
     assert mem.suggested_questions[0].status == "asked"
 
@@ -294,7 +353,6 @@ def test_lm_studio_configuration():
     )
     assert agent.llm_provider == "lm_studio"
     assert agent.custom_endpoint == "http://localhost:1234/v1"
-    # Even in privacy mode, LM Studio is local/LAN, so _is_offline_mode must be False!
     assert agent._is_offline_mode() is False
 
     # Configure LM Studio remote server
@@ -404,7 +462,6 @@ def test_notes_upload_and_summarization_linkage():
                 prompt_variables={"copilot_notes": "# Test Notes\n- [x] Item 1"}
             )
             assert rec_id == "rec_456"
-            # Verify data payload passed to httpx.Client.post
             _, kwargs = mock_post.call_args
             assert "data" in kwargs
             assert kwargs["data"]["title"] == "Test Call"
@@ -452,7 +509,6 @@ def test_notes_upload_and_summarization_linkage():
             assert resolved_p == str(Path(notes_path).resolve())
             assert "Key question answered" in resolved_txt
 
-            # Mock SpeakrClient during _process_background
             with patch("core.uploader.SpeakrClient") as MockClientCls:
                 mock_client_inst = MagicMock()
                 mock_client_inst.upload_recording.return_value = "rec_789"
@@ -462,11 +518,9 @@ def test_notes_upload_and_summarization_linkage():
 
                 uploader._process_background(audio_path, [101], audio_path)
 
-                # Verify upload_recording called with notes
                 mock_client_inst.upload_recording.assert_called_once()
                 call_args, call_kwargs = mock_client_inst.upload_recording.call_args
                 assert "Key question answered" in call_kwargs["notes"]
-                # Verify replace_recording_notes confirmed notes on Speakr
                 mock_client_inst.replace_recording_notes.assert_called_with("rec_789", resolved_txt)
 
             # 3. Test AudioUploader Folder mode copies notes
@@ -490,7 +544,7 @@ def test_notes_upload_and_summarization_linkage():
     print("[OK] Notes Upload and Summarization Linkage passed.")
 
 def test_static_control_bar_and_dashboard_tabs():
-    print("Testing Static Control Bar Contextual Visibility and Dashboard Sub-Tabs...")
+    print("Testing Static Control Bar, Copilot Toggle Button, and Dashboard Sub-Tabs...")
     from PySide6.QtWidgets import QApplication
     from core.config import Settings
     from core.recorder import AudioRecorder
@@ -509,12 +563,21 @@ def test_static_control_bar_and_dashboard_tabs():
     try:
         # 1. Top Static Control Bar & initial Idle state
         assert hasattr(w, "static_control_frame")
+        assert hasattr(w, "copilot_toggle_btn")
+        assert "Copilot" in w.copilot_toggle_btn.text()
         assert w.status_label.text() == "STATUS: IDLE"
         assert w.record_btn.isVisible() is True
         assert "Start Recording" in w.record_btn.text()
         assert w.pause_btn.isVisible() is False
         assert w.skip_cooldown_btn.isVisible() is False
         assert w.upload_last_btn.isVisible() is True
+
+        # Test Copilot ON/OFF toggle in static bar
+        initial_enabled = w.settings.copilot_enabled
+        w.copilot_toggle_btn.click()
+        assert w.settings.copilot_enabled == (not initial_enabled)
+        w.copilot_toggle_btn.click()
+        assert w.settings.copilot_enabled == initial_enabled
 
         # 2. Dashboard Sub-Tabs
         assert hasattr(w, "dashboard_subtabs")
@@ -571,9 +634,8 @@ def test_static_control_bar_and_dashboard_tabs():
         rec.terminate()
         w.close()
 
-    print("[OK] Static Control Bar Contextual Visibility and Dashboard Sub-Tabs passed.")
+    print("[OK] Static Control Bar, Copilot Toggle Button, and Dashboard Sub-Tabs passed.")
 
-# Backward compatibility alias
 test_hud_toggle_visibility_button = test_static_control_bar_and_dashboard_tabs
 
 def test_hud_clear_on_start_and_manual_reset():
@@ -604,12 +666,17 @@ def test_hud_clear_on_start_and_manual_reset():
         mem.set_suggested_questions([
             {"question": "Is the rollback ready?", "rationale": "Safety"}
         ])
+        mem.set_follow_up_suggestions([
+            {"task": "Run healthcheck", "owner": "Chuck"}
+        ])
         mem.add_user_note("Chuck confirmed snapshot 1.")
         hud._render_questions()
+        hud._render_follow_ups()
         hud._render_notes()
         hud.ticker_box.append("Test transcript line")
 
         assert hud.questions_list.count() == 1
+        assert hud.follow_ups_list.count() == 1
         assert hud.notes_list.count() >= 1
         assert len(hud.ticker_box.toPlainText()) > 0
         assert len(mem.turns) == 1
@@ -622,8 +689,8 @@ def test_hud_clear_on_start_and_manual_reset():
             saved_notes = w._stop_copilot_session(temp_rec)
             assert saved_notes is not None
             assert os.path.exists(saved_notes)
-            # HUD content must remain intact for post-meeting reading
             assert hud.questions_list.count() == 1
+            assert hud.follow_ups_list.count() == 1
             assert hud.notes_list.count() >= 1
             assert len(hud.ticker_box.toPlainText()) > 0
             assert "Notes Saved" in hud.status_dot.toolTip()
@@ -634,6 +701,7 @@ def test_hud_clear_on_start_and_manual_reset():
         # 3. Test Manual Reset button (clears immediately on demand)
         hud.reset_btn.click()
         assert hud.questions_list.count() == 0
+        assert hud.follow_ups_list.count() == 0
         assert hud.notes_list.count() == 0
         assert hud.ticker_box.toPlainText() == ""
         assert len(mem.turns) == 0
@@ -653,6 +721,7 @@ def test_hud_clear_on_start_and_manual_reset():
         # Now start new session -> HUD and memory must be wiped clean!
         w._start_copilot_session()
         assert hud.questions_list.count() == 0
+        assert hud.follow_ups_list.count() == 0
         assert hud.notes_list.count() == 0
         assert hud.ticker_box.toPlainText() == ""
         assert len(mem.turns) == 0
@@ -733,7 +802,6 @@ def test_history_icon_buttons_and_model_fetch_ui():
 
         w = MainWindow(s, rec, up, stor)
         try:
-            # 1. Verify history table has row with action widget containing icon buttons
             w._refresh_history_table()
             assert w.history_table.rowCount() >= 1
             action_widget = w.history_table.cellWidget(0, 6)
@@ -747,18 +815,15 @@ def test_history_icon_buttons_and_model_fetch_ui():
             assert "📁" in btn_texts, "Reveal in Explorer icon button must be present"
             assert "🗑️" in btn_texts, "Delete icon button must be present"
 
-            # Check tooltips
             for b in buttons:
                 assert len(b.toolTip()) > 0, f"Button {b.text()} must have a tooltip"
 
-            # 2. Verify LM Studio model fetch button, combo box, and Auth fields in Preferences
             assert hasattr(w, "llm_model_combo")
             assert hasattr(w, "fetch_models_btn")
             assert hasattr(w, "lm_studio_bypass_auth_chk")
             assert hasattr(w, "lm_studio_key_input")
             assert w.llm_model_combo.isEditable() is True
 
-            # Verify Auth checkbox and input enable/disable behavior
             w.lm_studio_bypass_auth_chk.setChecked(True)
             assert w.lm_studio_key_input.isEnabled() is False
             w.lm_studio_bypass_auth_chk.setChecked(False)
@@ -767,14 +832,11 @@ def test_history_icon_buttons_and_model_fetch_ui():
             assert w.settings.lm_studio_api_key == "secret-auth-token"
             assert w.settings.lm_studio_bypass_auth is False
 
-            # Mock fetch models
             mock_models = ["model-alpha", "model-beta"]
             with patch("gui.main_window.fetch_lm_studio_models", return_value=mock_models) as mock_fetch:
                 w.fetch_models_btn.click()
-                # Wait briefly for thread execution
                 time.sleep(0.1)
                 QApplication.processEvents()
-                # Ensure api_key was passed when bypass_auth is False
                 assert mock_fetch.called
                 _, kwargs = mock_fetch.call_args
                 assert kwargs.get("api_key") == "secret-auth-token"
@@ -805,4 +867,3 @@ if __name__ == "__main__":
     test_fetch_lm_studio_models_function()
     test_history_icon_buttons_and_model_fetch_ui()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
-
