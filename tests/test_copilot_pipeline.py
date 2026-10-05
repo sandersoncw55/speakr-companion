@@ -937,6 +937,64 @@ def test_light_and_dark_theme_system():
     print("[OK] Light & Dark Theme System passed.")
 
 
+def test_open_speakr_web_instance_button():
+    """Verifies the Open Speakr button in top static bar correctly parses server URL and invokes browser."""
+    print("Testing Open Speakr Web Instance Button...")
+    import tempfile
+    from unittest.mock import patch
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtWidgets import QApplication
+    from core.config import Settings
+    from core.storage import RecordingsManager
+    from core.recorder import AudioRecorder
+    from core.uploader import AudioUploader
+    from gui.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cfg = Settings()
+        cfg.settings_file = Path(tmpdir) / "settings.json"
+        cfg.data = dict(Settings.DEFAULT_SETTINGS)
+        cfg.data["local_recordings_dir"] = tmpdir
+        cfg.data["servers"] = [
+            {"name": "Local Speakr", "url": "http://192.168.0.88:8899/api/v1", "api_key": "key123"},
+            {"name": "Cloud Speakr", "url": "https://speakr.example.com", "api_key": "cloud123"}
+        ]
+        cfg.data["active_server_idx"] = 0
+        
+        storage = RecordingsManager(cfg)
+        rec = AudioRecorder()
+        upl = AudioUploader(cfg, storage)
+        w = MainWindow(cfg, rec, upl, storage)
+        
+        try:
+            assert hasattr(w, "open_web_btn")
+            assert "Open Speakr" in w.open_web_btn.text()
+            assert "192.168.0.88:8899" in w.open_web_btn.toolTip()
+            
+            with patch.object(QDesktopServices, "openUrl", return_value=True) as mock_open:
+                w.open_web_btn.click()
+                assert mock_open.called
+                opened_qurl = mock_open.call_args[0][0]
+                assert opened_qurl.toString() == "http://192.168.0.88:8899"
+                
+            # Switch to cloud server
+            w._server_selection_changed(1)
+            assert "speakr.example.com" in w.open_web_btn.toolTip()
+            
+            with patch.object(QDesktopServices, "openUrl", return_value=True) as mock_open:
+                w._open_speakr_web_instance()
+                assert mock_open.called
+                opened_qurl = mock_open.call_args[0][0]
+                assert opened_qurl.toString() == "https://speakr.example.com"
+        finally:
+            if w.hud:
+                w.hud.close()
+            rec.terminate()
+            w.close()
+    print("[OK] Open Speakr Web Instance Button passed.")
+
+
 if __name__ == "__main__":
     test_memory_and_scratchpad()
     test_prompts_and_tag_personas()
@@ -955,4 +1013,5 @@ if __name__ == "__main__":
     test_fetch_lm_studio_models_function()
     test_history_icon_buttons_and_model_fetch_ui()
     test_light_and_dark_theme_system()
+    test_open_speakr_web_instance_button()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")

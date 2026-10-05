@@ -3,7 +3,7 @@ import time
 import threading
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from PySide6.QtCore import Qt, Signal, QObject, QTimer, QEvent
+from PySide6.QtCore import Qt, Signal, QObject, QTimer, QEvent, QUrl
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QCheckBox, QComboBox, QLineEdit, QSpinBox,
@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QTextBrowser, QFrame
 )
-from PySide6.QtGui import QIcon, QFont, QColor
+from PySide6.QtGui import QIcon, QFont, QColor, QDesktopServices
 
 from core.config import Settings, get_app_icon, get_resource_path
 from core.recorder import AudioRecorder
@@ -346,6 +346,12 @@ class MainWindow(QMainWindow):
         bar_layout.addWidget(self.status_label)
 
         bar_layout.addStretch()
+
+        # Open Speakr Web Instance Button
+        self.open_web_btn = QPushButton("🌐 Open Speakr")
+        self.open_web_btn.clicked.connect(self._open_speakr_web_instance)
+        self._update_open_web_btn_tooltip()
+        bar_layout.addWidget(self.open_web_btn)
 
         # Copilot ON/OFF Toggle Button
         self.copilot_toggle_btn = QPushButton()
@@ -1485,10 +1491,43 @@ class MainWindow(QMainWindow):
             self.server_combo.addItem(s["name"])
         self.server_combo.setCurrentIndex(self.settings.active_server_idx)
 
+    def _update_open_web_btn_tooltip(self) -> None:
+        """Updates the tooltip on the Open Speakr button to show the current server URL."""
+        if hasattr(self, "open_web_btn") and self.open_web_btn:
+            server = self.settings.active_server
+            name = server.get("name", "Speakr")
+            url = server.get("url", "")
+            self.open_web_btn.setToolTip(f"Open {name} web app in default browser ({url})")
+
+    def _open_speakr_web_instance(self) -> None:
+        """Opens the active Speakr server web UI in default web browser."""
+        server = self.settings.active_server
+        raw_url = server.get("url", "http://localhost:8899").strip()
+        
+        # Clean URL to point to root web dashboard
+        web_url = raw_url
+        if web_url.endswith("/api/v1"):
+            web_url = web_url[:-7].rstrip("/")
+        elif web_url.endswith("/api"):
+            web_url = web_url[:-4].rstrip("/")
+            
+        if not web_url.startswith("http://") and not web_url.startswith("https://"):
+            web_url = f"http://{web_url}"
+            
+        try:
+            QDesktopServices.openUrl(QUrl(web_url))
+            self._log(f"Opening Speakr web app in default browser: {web_url}")
+            self.statusBar().showMessage(f"Opening Speakr instance: {web_url}", 4000)
+        except Exception as e:
+            import webbrowser
+            webbrowser.open(web_url)
+            self._log(f"Opening Speakr web app via webbrowser fallback: {e}")
+
     def _server_selection_changed(self, idx: int) -> None:
         if idx >= 0:
             self.settings.active_server_idx = idx
             self._log(f"Active server changed to: {self.settings.active_server['name']}")
+            self._update_open_web_btn_tooltip()
             self._load_active_tags()
 
     def _add_server(self) -> None:
@@ -1500,6 +1539,7 @@ class MainWindow(QMainWindow):
             self.settings.servers = servers
             self._populate_server_combo()
             self.server_combo.setCurrentIndex(len(servers) - 1)
+            self._update_open_web_btn_tooltip()
             self._log(f"Added server: {data['name']}")
 
     def _edit_server(self) -> None:
@@ -1514,6 +1554,7 @@ class MainWindow(QMainWindow):
             self.settings.servers = servers
             self._populate_server_combo()
             self.server_combo.setCurrentIndex(idx)
+            self._update_open_web_btn_tooltip()
             self._log(f"Edited server: {data['name']}")
 
     def _delete_server(self) -> None:
@@ -1530,6 +1571,7 @@ class MainWindow(QMainWindow):
                 self.settings.servers = servers
                 self.settings.active_server_idx = 0
                 self._populate_server_combo()
+                self._update_open_web_btn_tooltip()
                 self._log(f"Deleted server: {name}")
 
     # Tag Loader
