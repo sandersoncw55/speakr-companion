@@ -582,7 +582,7 @@ def test_static_control_bar_and_dashboard_tabs():
         # 2. Dashboard Sub-Tabs
         assert hasattr(w, "dashboard_subtabs")
         assert w.dashboard_subtabs.count() == 2
-        assert w.dashboard_subtabs.tabText(0) == "Audio & Session Monitor"
+        assert w.dashboard_subtabs.tabText(0).replace("&&", "&") == "Audio & Session Monitor"
         assert w.dashboard_subtabs.tabText(1) == "Live Meeting Copilot"
         assert w.copilot_widget is not None
         assert w.hud is w.copilot_widget

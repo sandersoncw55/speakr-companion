@@ -56,7 +56,7 @@ QGroupBox {
     background-color: #1e293b;
     border: 1px solid #334155;
     border-radius: 6px;
-    margin-top: 18px;
+    margin-top: 14px;
     padding-top: 14px;
     padding-bottom: 8px;
     padding-left: 8px;
@@ -164,9 +164,9 @@ QComboBox {
     color: #f8fafc;
     border: 1px solid #334155;
     border-radius: 4px;
-    padding: 5px 8px;
+    padding: 5px 28px 5px 8px;
     font-size: 12px;
-    min-height: 18px;
+    min-height: 20px;
 }
 
 QComboBox:hover {
@@ -180,7 +180,7 @@ QComboBox:focus {
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 22px;
+    width: 24px;
     border-left: 1px solid #334155;
     border-top-right-radius: 4px;
     border-bottom-right-radius: 4px;
@@ -207,12 +207,12 @@ QTableWidget, QListWidget, QListView, QTableView {
     outline: none;
 }
 
-QTableWidget::item, QListWidget::item {
+QTableWidget::item {
     padding: 4px 6px;
     border-bottom: 1px solid #1e293b;
 }
 
-QTableWidget::item:selected, QListWidget::item:selected {
+QTableWidget::item:selected {
     background-color: #1e293b;
     color: #38bdf8;
 }
@@ -275,7 +275,8 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 QCheckBox, QRadioButton {
     color: #f8fafc;
     font-size: 12px;
-    spacing: 6px;
+    spacing: 8px;
+    padding: 2px 4px;
 }
 
 QCheckBox::indicator, QRadioButton::indicator {
@@ -284,6 +285,7 @@ QCheckBox::indicator, QRadioButton::indicator {
     background-color: #0f172a;
     border: 1px solid #475569;
     border-radius: 3px;
+    margin-left: 2px;
 }
 
 QRadioButton::indicator {

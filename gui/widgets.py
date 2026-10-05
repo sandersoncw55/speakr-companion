@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from PySide6.QtCore import Qt, QTimer, QRectF
+from PySide6.QtCore import Qt, QTimer, QRectF, QSize
 from PySide6.QtGui import QPainter, QColor, QLinearGradient, QBrush, QPen
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout, QLabel
 
@@ -19,7 +19,7 @@ class VolumeMeter(QWidget):
         self.decay_timer.timeout.connect(self._decay_peak)
         self.decay_timer.start(50)  # 20 FPS decay updates
         
-        self.setMinimumHeight(26)
+        self.setMinimumHeight(28)
 
     def set_level(self, db: float) -> None:
         """Set the current decibel level."""
@@ -91,7 +91,7 @@ class VolumeMeter(QWidget):
                 label_text = f"{self.label}: Idle (Silent)"
             else:
                 label_text = f"{self.label}: Idle / Standby"
-        painter.drawText(8, height // 2 + 4, label_text)
+        painter.drawText(10, height // 2 + 4, label_text)
 
 
 class TagSelector(QWidget):
@@ -110,6 +110,15 @@ class TagSelector(QWidget):
                 background-color: #0f172a;
                 border: 1px solid #334155;
                 border-radius: 4px;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 0px;
+                margin: 0px;
+                border-bottom: 1px solid #1e293b;
+            }
+            QListWidget::item:hover {
+                background-color: #1e293b;
             }
         """)
         layout.addWidget(self.list_widget)
@@ -124,20 +133,37 @@ class TagSelector(QWidget):
             name = tag.get("name", "Unnamed Tag")
             color_hex = tag.get("color", "#7f8c8d")
             
-            # Create list item
-            item = QListWidgetItem(self.list_widget)
-            self.list_widget.addItem(item)
-            
             # Create container widget
             container = QWidget()
             container_layout = QHBoxLayout(container)
-            container_layout.setContentsMargins(6, 4, 6, 4)
-            container_layout.setSpacing(8)
+            container_layout.setContentsMargins(12, 4, 12, 4)
+            container_layout.setSpacing(10)
             
             # Checkbox
             checkbox = QCheckBox(name)
             checkbox.setProperty("tag_id", tag_id)
-            checkbox.setStyleSheet("color: #f8fafc; font-size: 12px;")
+            checkbox.setStyleSheet("""
+                QCheckBox {
+                    color: #f8fafc;
+                    font-size: 12px;
+                    spacing: 8px;
+                    padding-left: 2px;
+                }
+                QCheckBox::indicator {
+                    width: 16px;
+                    height: 16px;
+                    background-color: #0f172a;
+                    border: 1px solid #475569;
+                    border-radius: 3px;
+                }
+                QCheckBox::indicator:hover {
+                    border-color: #38bdf8;
+                }
+                QCheckBox::indicator:checked {
+                    background-color: #0284c7;
+                    border-color: #38bdf8;
+                }
+            """)
             container_layout.addWidget(checkbox)
             
             # Color badge
@@ -146,12 +172,13 @@ class TagSelector(QWidget):
             badge.setStyleSheet(f"background-color: {color_hex}; border-radius: 6px; border: 1px solid #475569;")
             container_layout.addWidget(badge)
             
-            # Stretch spacer
             container_layout.addStretch()
-            
-            # Set size and insert widget
             container.setLayout(container_layout)
-            item.setSizeHint(container.sizeHint())
+            
+            # Add item with generous 32px height to avoid clipping
+            item = QListWidgetItem(self.list_widget)
+            item.setSizeHint(QSize(max(200, container.sizeHint().width()), 32))
+            self.list_widget.addItem(item)
             self.list_widget.setItemWidget(item, container)
 
     def selected_tag_ids(self) -> List[int]:

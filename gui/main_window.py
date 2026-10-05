@@ -631,21 +631,21 @@ class MainWindow(QMainWindow):
         meters_layout.addWidget(self.spk_meter)
         monitor_layout.addWidget(meters_group)
 
-        # Tagging widget
+        # Tagging widget (Grows and expands with window resize)
         tag_group = QGroupBox("Assign Meeting Tags")
         tag_layout = QVBoxLayout(tag_group)
         
         self.tag_selector = TagSelector(self)
-        tag_layout.addWidget(self.tag_selector)
+        tag_layout.addWidget(self.tag_selector, 1)
         
         # Fetch tags button
         self.refresh_tags_btn = QPushButton("Reload Tags from Server")
         self.refresh_tags_btn.clicked.connect(self._load_active_tags)
         tag_layout.addWidget(self.refresh_tags_btn)
-        monitor_layout.addWidget(tag_group)
+        monitor_layout.addWidget(tag_group, 1)
 
-        # Windows Live Captions Hint Card
-        captions_card = QGroupBox("Live Subtitles & Closed Captions")
+        # Windows Live Captions Hint Card (Static to the bottom)
+        captions_card = QGroupBox("Live Subtitles && Closed Captions")
         captions_layout = QHBoxLayout(captions_card)
         
         captions_hint_label = QLabel(
@@ -658,36 +658,35 @@ class MainWindow(QMainWindow):
         open_captions_btn = QPushButton("Open Captions Settings")
         open_captions_btn.setStyleSheet("""
             QPushButton {
-                background-color: #34495e;
+                background-color: #1e293b;
                 color: #ecf0f1;
-                border: 1px solid #4a6278;
+                border: 1px solid #475569;
                 border-radius: 4px;
                 padding: 5px 12px;
                 font-size: 11px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #4a6278;
+                background-color: #334155;
                 color: white;
             }
         """)
         open_captions_btn.clicked.connect(self._open_windows_captions_settings)
         captions_layout.addWidget(open_captions_btn)
         monitor_layout.addWidget(captions_card)
-        monitor_layout.addStretch()
 
         # --- Sub-Tab 2: Live Meeting Copilot ---
         self._ensure_copilot_session()
         self.copilot_widget = self.hud
 
-        self.dashboard_subtabs.addTab(tab_monitor, "Audio & Session Monitor")
+        self.dashboard_subtabs.addTab(tab_monitor, "Audio && Session Monitor")
         self.dashboard_subtabs.addTab(self.copilot_widget, "Live Meeting Copilot")
 
     def _setup_history_tab(self) -> None:
         layout = QVBoxLayout(self.history_tab)
         
         # Header Info Banner
-        header_group = QGroupBox("Local Storage & Retention")
+        header_group = QGroupBox("Local Storage && Retention")
         header_layout = QHBoxLayout(header_group)
         
         self.history_info_label = QLabel()
@@ -1080,7 +1079,7 @@ class MainWindow(QMainWindow):
         tab_server_layout.addWidget(upload_group)
         tab_server_layout.addStretch()
 
-        self.pref_subtabs.addTab(tab_server, "Server & Ingestion")
+        self.pref_subtabs.addTab(tab_server, "Server && Ingestion")
 
         # Tab 2: Audio Hardware & Auto-Record
         tab_audio = QWidget()
@@ -1114,7 +1113,7 @@ class MainWindow(QMainWindow):
         tab_audio_layout.addWidget(format_group)
 
         # Local Storage & Retention
-        storage_group = QGroupBox("Local Recording Storage & Retention")
+        storage_group = QGroupBox("Local Recording Storage && Retention")
         storage_layout = QFormLayout(storage_group)
         storage_folder_box = QHBoxLayout()
         self.storage_path_input = QLineEdit(self.settings.local_recordings_dir or str(self.settings.resolved_recordings_dir))
@@ -1174,7 +1173,7 @@ class MainWindow(QMainWindow):
         tab_audio_layout.addWidget(rules_group)
 
         # System Tray Behavior
-        tray_group = QGroupBox("Window & System Tray Behavior")
+        tray_group = QGroupBox("Window && System Tray Behavior")
         tray_layout = QVBoxLayout(tray_group)
         self.min_to_tray_chk = QCheckBox("Minimize to System Tray (hide window when minimized)")
         self.min_to_tray_chk.setChecked(self.settings.minimize_to_tray)
@@ -1186,7 +1185,7 @@ class MainWindow(QMainWindow):
         tray_layout.addWidget(self.close_to_tray_chk)
         tab_audio_layout.addWidget(tray_group)
 
-        self.pref_subtabs.addTab(tab_audio, "Audio Hardware & Rules")
+        self.pref_subtabs.addTab(tab_audio, "Audio Hardware && Rules")
 
         # Tab 3: Live Copilot & ASR
         tab_copilot = QWidget()
@@ -1258,7 +1257,7 @@ class MainWindow(QMainWindow):
         tab_copilot_layout.addWidget(asr_group)
 
         # Live Copilot Reasoning Engine Group
-        llm_group = QGroupBox("Live Copilot Reasoning & Synthesis")
+        llm_group = QGroupBox("Live Copilot Reasoning && Synthesis")
         self.llm_form = QFormLayout(llm_group)
 
         # Row 0: LLM Provider
@@ -1378,7 +1377,7 @@ class MainWindow(QMainWindow):
         tab_copilot_layout.addWidget(llm_group)
 
         # Storage & Persistence Info Banner
-        profile_info_group = QGroupBox("User Profile & Settings Persistence")
+        profile_info_group = QGroupBox("User Profile && Settings Persistence")
         profile_layout = QVBoxLayout(profile_info_group)
         profile_path = self.settings.config_file
         profile_lbl = QLabel(
@@ -1392,7 +1391,7 @@ class MainWindow(QMainWindow):
 
         tab_copilot_layout.addStretch()
 
-        self.pref_subtabs.addTab(tab_copilot, "Live Copilot & ASR")
+        self.pref_subtabs.addTab(tab_copilot, "Live Copilot && ASR")
 
         # Initial dynamic visibility adjustment
         self._update_dynamic_copilot_settings_visibility()
