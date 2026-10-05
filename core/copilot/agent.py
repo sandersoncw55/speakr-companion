@@ -400,10 +400,8 @@ class CopilotAgent:
             headers = {
                 "Content-Type": "application/json"
             }
-            if self.api_key:
+            if self.api_key and self.api_key.strip():
                 headers["Authorization"] = f"Bearer {self.api_key.strip()}"
-            else:
-                headers["Authorization"] = "Bearer lm-studio"
 
             messages = [
                 {"role": "system", "content": system_prompt},

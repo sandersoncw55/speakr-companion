@@ -68,6 +68,11 @@ class Settings:
         "openai_api_key": "",
         "gemini_api_key": "",
         "openrouter_api_key": "",
+        "lm_studio_endpoint": "http://localhost:1234/v1",
+        "lm_studio_server_type": "local",
+        "lm_studio_model": "local-model",
+        "lm_studio_api_key": "",
+        "lm_studio_bypass_auth": True,
         "llm_provider": "openrouter", # 'openrouter', 'gemini', 'ollama'
         "llm_model": "openai/gpt-4o-mini",
         "privacy_mode": False,       # Locks ASR to Local CPU and LLM to Ollama/offline
@@ -436,6 +441,24 @@ class Settings:
     @lm_studio_model.setter
     def lm_studio_model(self, val: str) -> None:
         self.data["lm_studio_model"] = val
+        self.save()
+
+    @property
+    def lm_studio_api_key(self) -> str:
+        return self.data.get("lm_studio_api_key", "")
+
+    @lm_studio_api_key.setter
+    def lm_studio_api_key(self, val: str) -> None:
+        self.data["lm_studio_api_key"] = val
+        self.save()
+
+    @property
+    def lm_studio_bypass_auth(self) -> bool:
+        return bool(self.data.get("lm_studio_bypass_auth", True))
+
+    @lm_studio_bypass_auth.setter
+    def lm_studio_bypass_auth(self, val: bool) -> None:
+        self.data["lm_studio_bypass_auth"] = val
         self.save()
 
     @property

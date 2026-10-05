@@ -17,9 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Added `[🔄 Fetch Models]` button alongside an editable model selection `QComboBox` in the Live Copilot Preferences.
   - Background daemon worker thread execution ensuring zero UI blocking during network lookups.
   - Automatic endpoint canonicalization (supporting `http://localhost:1234`, `http://localhost:1234/v1`, or full path URLs).
+- **LM Studio API Token & Authentication Bypass (`core/config.py`, `core/copilot/agent.py`, `gui/main_window.py`):**
+  - Added dedicated configuration and UI controls for LM Studio API Token (`lm_studio_api_key`) and Authentication Bypass toggle (`lm_studio_bypass_auth`).
+  - Seamlessly handles LM Studio instances that require Bearer token authorization headers or run in unauthenticated local bypass mode.
 - **Unit & Integration Test Suite Enhancements (`tests/`):**
   - Added `test_fetch_lm_studio_models_function` testing API parsing and error response handling.
-  - Added `test_history_icon_buttons_and_model_fetch_ui` testing all 5 icon buttons and the model discovery UI workflow.
+  - Added `test_history_icon_buttons_and_model_fetch_ui` testing all 5 icon buttons, LM Studio auth bypass toggling, and the model discovery UI workflow.
 
 ---
 

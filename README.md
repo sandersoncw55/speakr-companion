@@ -71,7 +71,7 @@ Under the **Preferences** tab, settings are organized into distinct categories:
 3. **Audio & Hardware:** Select microphone and speaker loopback devices, audio encoding format (`MP4 (AAC Compressed)` or `WAV (Uncompressed PCM)`), and auto-record process rules (Zoom, Teams, Citrix).
 4. **Live Copilot & AI:**
    - **ASR Provider:** Choose between Local CPU Whisper (`tiny.en`, `base.en`, `small.en`), LAN Mac MLX, or Cloud API.
-   - **Reasoning LLM:** Configure LM Studio endpoint (`http://localhost:1234/v1`), API key, model name (auto-detected via `Fetch Models`), or enable Offline Extractive Engine.
+   - **Reasoning LLM:** Configure LM Studio endpoint (`http://localhost:1234/v1`), optional API Token / Key, Authentication Bypass toggle, model name (auto-detected via `Fetch Models`), or enable Offline Extractive Engine.
    - **Meeting Mode & Personas:** Toggle between Virtual (dual-channel: mic + system loopback) and In-Person (mic only), and select meeting personas (e.g. CAB Meeting, Bridge Call Troubleshooting, Architecture Review, General).
 
 ---

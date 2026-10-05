@@ -1014,7 +1014,21 @@ class MainWindow(QMainWindow):
         self.lm_studio_url_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("LM Studio URL:", self.lm_studio_url_input)
 
-        # Row 3: OpenRouter Key
+        # Row 3: LM Studio Bypass Authentication
+        self.lm_studio_bypass_auth_chk = QCheckBox("Bypass Authentication (No API Token Required)")
+        self.lm_studio_bypass_auth_chk.setChecked(self.settings.lm_studio_bypass_auth)
+        self.lm_studio_bypass_auth_chk.toggled.connect(self._on_lm_studio_bypass_auth_toggled)
+        self.llm_form.addRow("LM Studio Auth:", self.lm_studio_bypass_auth_chk)
+
+        # Row 4: LM Studio API Token
+        self.lm_studio_key_input = QLineEdit(self.settings.lm_studio_api_key)
+        self.lm_studio_key_input.setEchoMode(QLineEdit.Password)
+        self.lm_studio_key_input.setPlaceholderText("Enter LM Studio API Token / Key..." if not self.settings.lm_studio_bypass_auth else "Authentication bypassed (no token needed)")
+        self.lm_studio_key_input.setEnabled(not self.settings.lm_studio_bypass_auth)
+        self.lm_studio_key_input.textChanged.connect(self._asr_settings_changed)
+        self.llm_form.addRow("LM Studio API Token:", self.lm_studio_key_input)
+
+        # Row 5: OpenRouter Key
         self.openrouter_key_input = QLineEdit(self.settings.openrouter_api_key)
         self.openrouter_key_input.setEchoMode(QLineEdit.Password)
         self.openrouter_key_input.setPlaceholderText("sk-or-v1-...")
@@ -1621,6 +1635,15 @@ class MainWindow(QMainWindow):
                 self.lm_studio_url_input.setText("http://192.168.0.88:1234/v1")
         self._asr_settings_changed()
 
+    def _on_lm_studio_bypass_auth_toggled(self, checked: bool) -> None:
+        if hasattr(self, "lm_studio_key_input"):
+            self.lm_studio_key_input.setEnabled(not checked)
+            if checked:
+                self.lm_studio_key_input.setPlaceholderText("Authentication bypassed (no token needed)")
+            else:
+                self.lm_studio_key_input.setPlaceholderText("Enter LM Studio API Token / Key...")
+        self._asr_settings_changed()
+
     def _update_dynamic_copilot_settings_visibility(self) -> None:
         """Dynamically shows only fields relevant to selected ASR and LLM engines."""
         if not hasattr(self, "asr_form") or not hasattr(self, "llm_form"):
@@ -1641,7 +1664,8 @@ class MainWindow(QMainWindow):
         self.asr_form.setRowVisible(5, is_openai)
 
         # LLM rows:
-        # 0: provider, 1: lm studio type, 2: lm studio url, 3: openrouter key, 4: gemini key, 5: ollama endpoint, 6: model name, 7: cadence, 8: privacy
+        # 0: provider, 1: lm studio type, 2: lm studio url, 3: lm studio auth, 4: lm studio key, 
+        # 5: openrouter key, 6: gemini key, 7: ollama endpoint, 8: model name, 9: cadence, 10: privacy
         llm = self.llm_provider_combo.currentData()
         is_offline = (llm == "offline")
         is_lm_studio = (llm == "lm_studio")
@@ -1651,10 +1675,12 @@ class MainWindow(QMainWindow):
 
         self.llm_form.setRowVisible(1, is_lm_studio)
         self.llm_form.setRowVisible(2, is_lm_studio)
-        self.llm_form.setRowVisible(3, is_openrouter)
-        self.llm_form.setRowVisible(4, is_gemini)
-        self.llm_form.setRowVisible(5, is_ollama)
-        self.llm_form.setRowVisible(6, not is_offline)
+        self.llm_form.setRowVisible(3, is_lm_studio)
+        self.llm_form.setRowVisible(4, is_lm_studio)
+        self.llm_form.setRowVisible(5, is_openrouter)
+        self.llm_form.setRowVisible(6, is_gemini)
+        self.llm_form.setRowVisible(7, is_ollama)
+        self.llm_form.setRowVisible(8, not is_offline)
         if hasattr(self, "fetch_models_btn"):
             self.fetch_models_btn.setVisible(is_lm_studio)
 
@@ -1663,6 +1689,13 @@ class MainWindow(QMainWindow):
         endpoint = self.lm_studio_url_input.text().strip()
         if not endpoint:
             endpoint = "http://localhost:1234/v1"
+
+        api_key = ""
+        if hasattr(self, "lm_studio_bypass_auth_chk") and not self.lm_studio_bypass_auth_chk.isChecked():
+            if hasattr(self, "lm_studio_key_input"):
+                api_key = self.lm_studio_key_input.text().strip()
+        elif hasattr(self, "settings") and not self.settings.lm_studio_bypass_auth:
+            api_key = self.settings.lm_studio_api_key
 
         self.fetch_models_btn.setEnabled(False)
         self.fetch_models_btn.setText("🔄 Fetching...")
@@ -1675,7 +1708,7 @@ class MainWindow(QMainWindow):
 
         def _worker():
             try:
-                models = fetch_lm_studio_models(endpoint)
+                models = fetch_lm_studio_models(endpoint, api_key=api_key)
                 bridge.finished.emit(True, models, "")
             except Exception as e:
                 bridge.finished.emit(False, [], str(e))
@@ -1732,6 +1765,10 @@ class MainWindow(QMainWindow):
                 self.settings.lm_studio_server_type = lm_type
         if hasattr(self, "lm_studio_url_input"):
             self.settings.lm_studio_endpoint = self.lm_studio_url_input.text().strip()
+        if hasattr(self, "lm_studio_bypass_auth_chk"):
+            self.settings.lm_studio_bypass_auth = self.lm_studio_bypass_auth_chk.isChecked()
+        if hasattr(self, "lm_studio_key_input"):
+            self.settings.lm_studio_api_key = self.lm_studio_key_input.text().strip()
         self.settings.openrouter_api_key = self.openrouter_key_input.text().strip()
         self.settings.gemini_api_key = self.gemini_key_input.text().strip()
         self.settings.ollama_endpoint = self.ollama_endpoint_input.text().strip()
@@ -1764,6 +1801,9 @@ class MainWindow(QMainWindow):
                 api_key = self.settings.openrouter_api_key
             elif self.settings.llm_provider == "gemini":
                 api_key = self.settings.gemini_api_key
+            elif self.settings.llm_provider == "lm_studio":
+                if not self.settings.lm_studio_bypass_auth:
+                    api_key = self.settings.lm_studio_api_key
 
             endpoint = None
             if self.settings.llm_provider == "ollama":
@@ -1911,6 +1951,9 @@ class MainWindow(QMainWindow):
             api_key = self.settings.openrouter_api_key
         elif self.settings.llm_provider == "gemini":
             api_key = self.settings.gemini_api_key
+        elif self.settings.llm_provider == "lm_studio":
+            if not self.settings.lm_studio_bypass_auth:
+                api_key = self.settings.lm_studio_api_key
 
         endpoint = None
         if self.settings.llm_provider == "ollama":

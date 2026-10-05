@@ -323,9 +323,16 @@ def test_lm_studio_configuration():
     assert cfg.lm_studio_endpoint == "http://192.168.1.100:1234/v1"
     cfg.lm_studio_server_type = "remote"
     assert cfg.lm_studio_server_type == "remote"
+    cfg.lm_studio_api_key = "test-token-123"
+    assert cfg.lm_studio_api_key == "test-token-123"
+    cfg.lm_studio_bypass_auth = False
+    assert cfg.lm_studio_bypass_auth is False
+    cfg.lm_studio_bypass_auth = True
+    assert cfg.lm_studio_bypass_auth is True
     # Restore defaults
     cfg.lm_studio_endpoint = "http://localhost:1234/v1"
     cfg.lm_studio_server_type = "local"
+    cfg.lm_studio_api_key = ""
 
     print("[OK] LM Studio configuration & privacy mode passed.")
 
@@ -709,18 +716,33 @@ def test_history_icon_buttons_and_model_fetch_ui():
             for b in buttons:
                 assert len(b.toolTip()) > 0, f"Button {b.text()} must have a tooltip"
 
-            # 2. Verify LM Studio model fetch button and combo box in Preferences
+            # 2. Verify LM Studio model fetch button, combo box, and Auth fields in Preferences
             assert hasattr(w, "llm_model_combo")
             assert hasattr(w, "fetch_models_btn")
+            assert hasattr(w, "lm_studio_bypass_auth_chk")
+            assert hasattr(w, "lm_studio_key_input")
             assert w.llm_model_combo.isEditable() is True
+
+            # Verify Auth checkbox and input enable/disable behavior
+            w.lm_studio_bypass_auth_chk.setChecked(True)
+            assert w.lm_studio_key_input.isEnabled() is False
+            w.lm_studio_bypass_auth_chk.setChecked(False)
+            assert w.lm_studio_key_input.isEnabled() is True
+            w.lm_studio_key_input.setText("secret-auth-token")
+            assert w.settings.lm_studio_api_key == "secret-auth-token"
+            assert w.settings.lm_studio_bypass_auth is False
 
             # Mock fetch models
             mock_models = ["model-alpha", "model-beta"]
-            with patch("gui.main_window.fetch_lm_studio_models", return_value=mock_models):
+            with patch("gui.main_window.fetch_lm_studio_models", return_value=mock_models) as mock_fetch:
                 w.fetch_models_btn.click()
                 # Wait briefly for thread execution
                 time.sleep(0.1)
                 QApplication.processEvents()
+                # Ensure api_key was passed when bypass_auth is False
+                assert mock_fetch.called
+                _, kwargs = mock_fetch.call_args
+                assert kwargs.get("api_key") == "secret-auth-token"
 
         finally:
             if w.hud:
