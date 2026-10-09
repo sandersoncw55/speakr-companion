@@ -302,20 +302,20 @@ QHeaderView::section {{
 }}
 
 /* --- ScrollBars --- */
-QScrollBar:vertical {{
+QScrollBar:vertical, QAbstractScrollArea QScrollBar:vertical {{
     background: {p['bg_window']};
     width: 10px;
     margin: 0px;
     border-radius: 5px;
 }}
 
-QScrollBar::handle:vertical {{
+QScrollBar::handle:vertical, QAbstractScrollArea QScrollBar::handle:vertical {{
     background: {p['border_medium']};
     min-height: 20px;
     border-radius: 5px;
 }}
 
-QScrollBar::handle:vertical:hover {{
+QScrollBar::handle:vertical:hover, QAbstractScrollArea QScrollBar::handle:vertical:hover {{
     background: {p['text_muted']};
 }}
 
@@ -323,20 +323,20 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
 
-QScrollBar:horizontal {{
+QScrollBar:horizontal, QAbstractScrollArea QScrollBar:horizontal {{
     background: {p['bg_window']};
     height: 10px;
     margin: 0px;
     border-radius: 5px;
 }}
 
-QScrollBar::handle:horizontal {{
+QScrollBar::handle:horizontal, QAbstractScrollArea QScrollBar::handle:horizontal {{
     background: {p['border_medium']};
     min-width: 20px;
     border-radius: 5px;
 }}
 
-QScrollBar::handle:horizontal:hover {{
+QScrollBar::handle:horizontal:hover, QAbstractScrollArea QScrollBar::handle:horizontal:hover {{
     background: {p['text_muted']};
 }}
 

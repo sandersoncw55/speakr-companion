@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QPlainTextEdit, QGroupBox, QRadioButton, 
     QMessageBox, QDialog, QDialogButtonBox, QFormLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QTextBrowser, QFrame
+    QTextBrowser, QFrame, QScrollArea
 )
 from PySide6.QtGui import QIcon, QFont, QColor, QDesktopServices
 
@@ -130,6 +130,40 @@ class NotesViewerDialog(QDialog):
                 font-size: 13px;
                 line-height: 1.5;
             }
+            QScrollBar:vertical {
+                background: #1e293b;
+                width: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #475569;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #64748b;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar:horizontal {
+                background: #1e293b;
+                height: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #475569;
+                min-width: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #64748b;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
             QPushButton {
                 background-color: #1e293b;
                 color: #f8fafc;
@@ -163,6 +197,8 @@ class NotesViewerDialog(QDialog):
         # Content Browser
         self.browser = QTextBrowser(self)
         self.browser.setOpenExternalLinks(True)
+        self.browser.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.browser.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         content = ""
         if os.path.exists(notes_path):
             try:
@@ -1216,9 +1252,11 @@ class MainWindow(QMainWindow):
 
         self.pref_subtabs.addTab(tab_audio, "Audio Hardware && Rules")
 
-        # Tab 3: Live Copilot & ASR
-        tab_copilot = QWidget()
-        tab_copilot_layout = QVBoxLayout(tab_copilot)
+        # Tab 3: Live Copilot & ASR (Wrapped in QScrollArea for responsive vertical scrolling)
+        tab_copilot_content = QWidget()
+        tab_copilot_layout = QVBoxLayout(tab_copilot_content)
+        tab_copilot_layout.setContentsMargins(10, 10, 10, 10)
+        tab_copilot_layout.setSpacing(12)
 
         # Master Live Copilot Enable Checkbox
         enable_group = QGroupBox("Copilot Activation")
@@ -1339,20 +1377,20 @@ class MainWindow(QMainWindow):
         self.openrouter_key_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("OpenRouter Key:", self.openrouter_key_input)
 
-        # Row 4: Gemini Key
+        # Row 6: Gemini Key
         self.gemini_key_input = QLineEdit(self.settings.gemini_api_key)
         self.gemini_key_input.setEchoMode(QLineEdit.Password)
         self.gemini_key_input.setPlaceholderText("AIzaSy...")
         self.gemini_key_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("Gemini API Key:", self.gemini_key_input)
 
-        # Row 5: Ollama Endpoint
+        # Row 7: Ollama Endpoint
         self.ollama_endpoint_input = QLineEdit(self.settings.ollama_endpoint)
         self.ollama_endpoint_input.setPlaceholderText("http://localhost:11434/api/generate")
         self.ollama_endpoint_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("Ollama Endpoint:", self.ollama_endpoint_input)
 
-        # Row 6: LLM Model Name & Auto-Discovery
+        # Row 8: LLM Model Name & Auto-Discovery
         model_row_layout = QHBoxLayout()
         self.llm_model_combo = QComboBox(self)
         self.llm_model_combo.setEditable(True)
@@ -1383,7 +1421,7 @@ class MainWindow(QMainWindow):
 
         self.llm_form.addRow("Model Name:", model_row_layout)
 
-        # Row 7: Cadence
+        # Row 9: Cadence
         self.cadence_combo = QComboBox(self)
         self.cadence_combo.addItem("20 Seconds", 20)
         self.cadence_combo.addItem("35 Seconds (Default)", 35)
@@ -1397,13 +1435,49 @@ class MainWindow(QMainWindow):
         self.cadence_combo.currentIndexChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("Analysis Cadence:", self.cadence_combo)
 
-        # Row 8: Air-Gap / Privacy Mode
+        # Row 10: Air-Gap / Privacy Mode
         self.privacy_mode_chk = QCheckBox("Air-Gap / Privacy Mode (Blocks cloud APIs, forces local ASR & Offline/Ollama/LM Studio)")
         self.privacy_mode_chk.setChecked(self.settings.privacy_mode)
         self.privacy_mode_chk.toggled.connect(self._asr_settings_changed)
         self.llm_form.addRow("", self.privacy_mode_chk)
 
         tab_copilot_layout.addWidget(llm_group)
+
+        # Clean Shortcut Card to Prompt Customization Tab (replacing cluttered form)
+        prompt_card = QGroupBox("Live Copilot Quick Action Prompts")
+        prompt_card_layout = QVBoxLayout(prompt_card)
+        prompt_card_layout.setSpacing(8)
+
+        prompt_card_desc = QLabel(
+            "Customize the system instructions, technical personas, and analytical queries dispatched by each "
+            "one-click Quick Action button (e.g. <i>What to ask, Catch up, Action items, Risks, Jargon</i>)."
+        )
+        prompt_card_desc.setWordWrap(True)
+        prompt_card_desc.setStyleSheet("color: #cbd5e1; font-size: 11px;")
+        prompt_card_layout.addWidget(prompt_card_desc)
+
+        prompt_btn_bar = QHBoxLayout()
+        self.open_prompts_tab_btn = QPushButton("✏️ Configure Prompt Templates →")
+        self.open_prompts_tab_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0284c7;
+                color: #ffffff;
+                font-weight: 600;
+                font-size: 12px;
+                padding: 6px 16px;
+                border: 1px solid #0369a1;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #0369a1;
+            }
+        """)
+        self.open_prompts_tab_btn.clicked.connect(self._open_prompts_tab)
+        prompt_btn_bar.addWidget(self.open_prompts_tab_btn)
+        prompt_btn_bar.addStretch()
+        prompt_card_layout.addLayout(prompt_btn_bar)
+
+        tab_copilot_layout.addWidget(prompt_card)
 
         # Storage & Persistence Info Banner
         profile_info_group = QGroupBox("User Profile && Settings Persistence")
@@ -1420,7 +1494,115 @@ class MainWindow(QMainWindow):
 
         tab_copilot_layout.addStretch()
 
-        self.pref_subtabs.addTab(tab_copilot, "Live Copilot && ASR")
+        # Wrap in QScrollArea
+        tab_copilot_scroll = QScrollArea()
+        tab_copilot_scroll.setWidgetResizable(True)
+        tab_copilot_scroll.setFrameShape(QFrame.NoFrame)
+        tab_copilot_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        tab_copilot_scroll.setWidget(tab_copilot_content)
+        self.tab_copilot_scroll = tab_copilot_scroll
+
+        self.pref_subtabs.addTab(tab_copilot_scroll, "Live Copilot && ASR")
+
+        # =========================================================================
+        # Tab 4: Copilot Prompts (Dedicated Tab for Prompt Customization)
+        # =========================================================================
+        tab_prompts_content = QWidget()
+        tab_prompts_layout = QVBoxLayout(tab_prompts_content)
+        tab_prompts_layout.setContentsMargins(10, 10, 10, 10)
+        tab_prompts_layout.setSpacing(12)
+
+        prompts_header_group = QGroupBox("Quick Action Prompt Instructions")
+        prompts_header_layout = QVBoxLayout(prompts_header_group)
+        prompts_header_layout.setSpacing(6)
+
+        prompts_info_lbl = QLabel(
+            "Customize the system prompt instructions dispatched by each Live Copilot Quick Action button. "
+            "Leave blank or reset to revert to high-performance default engineering instructions."
+        )
+        prompts_info_lbl.setWordWrap(True)
+        prompts_info_lbl.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        prompts_header_layout.addWidget(prompts_info_lbl)
+
+        # Form for prompts with clean dark styling and proper height
+        prompt_form = QFormLayout()
+        prompt_form.setSpacing(10)
+        prompt_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignTop)
+
+        self.prompt_inputs = {}
+
+        prompt_specs = [
+            ("what_to_ask", "💡 What to ask:"),
+            ("catch_me_up", "⏱️ Catch me up:"),
+            ("clarify_ownership", "🎯 Action items:"),
+            ("spot_risks", "🚩 Spot risks:"),
+            ("explain_jargon", "🔍 Explain jargon:")
+        ]
+
+        for p_key, p_label in prompt_specs:
+            instruction_str = self.settings.get_quick_action_instruction(p_key)
+            txt_edit = QPlainTextEdit(instruction_str)
+            txt_edit.setFixedHeight(68)
+            txt_edit.setStyleSheet("""
+                QPlainTextEdit {
+                    background-color: #0f172a;
+                    border: 1px solid #334155;
+                    border-radius: 4px;
+                    color: #f8fafc;
+                    font-size: 11px;
+                    padding: 6px;
+                    line-height: 1.4;
+                }
+                QPlainTextEdit:focus {
+                    border: 1px solid #38bdf8;
+                }
+            """)
+            self.prompt_inputs[p_key] = txt_edit
+            prompt_form.addRow(p_label, txt_edit)
+
+        prompts_header_layout.addLayout(prompt_form)
+
+        # Buttons row for Prompts Save / Reset
+        prompt_btn_row = QHBoxLayout()
+        prompt_btn_row.setSpacing(10)
+
+        self.save_prompts_btn = QPushButton("💾 Save Quick Action Prompts")
+        self.save_prompts_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0369a1; color: white; border: none;
+                border-radius: 4px; padding: 7px 16px; font-size: 11px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #0284c7; }
+        """)
+        self.save_prompts_btn.clicked.connect(self._save_quick_action_prompts_clicked)
+        prompt_btn_row.addWidget(self.save_prompts_btn)
+
+        self.reset_prompts_btn = QPushButton("🔄 Reset Prompts to Defaults")
+        self.reset_prompts_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #334155; color: #cbd5e1; border: 1px solid #475569;
+                border-radius: 4px; padding: 7px 14px; font-size: 11px;
+            }
+            QPushButton:hover { background-color: #475569; color: #ffffff; }
+        """)
+        self.reset_prompts_btn.clicked.connect(self._reset_quick_action_prompts_clicked)
+        prompt_btn_row.addWidget(self.reset_prompts_btn)
+
+        prompt_btn_row.addStretch()
+        prompts_header_layout.addLayout(prompt_btn_row)
+
+        tab_prompts_layout.addWidget(prompts_header_group)
+        tab_prompts_layout.addStretch()
+
+        # Wrap in QScrollArea
+        tab_prompts_scroll = QScrollArea()
+        tab_prompts_scroll.setWidgetResizable(True)
+        tab_prompts_scroll.setFrameShape(QFrame.NoFrame)
+        tab_prompts_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        tab_prompts_scroll.setWidget(tab_prompts_content)
+        self.tab_prompts_scroll = tab_prompts_scroll
+
+        self.pref_subtabs.addTab(tab_prompts_scroll, "Copilot Prompts")
 
         # Initial dynamic visibility adjustment
         self._update_dynamic_copilot_settings_visibility()
@@ -2218,7 +2400,51 @@ class MainWindow(QMainWindow):
                 meeting_mode=self.settings.meeting_mode,
                 asr_name_or_key=self.settings.asr_provider
             )
+            self.hud.update_engine_status(self.copilot_agent.get_engine_info() if self.copilot_agent else None)
         self._log("Copilot & ASR settings updated.")
+
+    def _save_quick_action_prompts_clicked(self) -> None:
+        """Saves edited quick action prompt instructions to persistent Settings."""
+        if not hasattr(self, "prompt_inputs"):
+            return
+        updated = {}
+        for k, widget in self.prompt_inputs.items():
+            curr = self.settings.quick_action_prompts.get(k, {})
+            title = curr.get("title", k)
+            updated[k] = {
+                "title": title,
+                "instruction": widget.toPlainText().strip()
+            }
+        self.settings.quick_action_prompts = updated
+        self.settings.save()
+        self.save_prompts_btn.setText("✓ Saved!")
+        self.statusBar().showMessage("Quick Action Prompts saved successfully.", 4000)
+        self._log("Quick Action Prompts configuration updated.")
+        QTimer.singleShot(1800, lambda: self.save_prompts_btn.setText("💾 Save Quick Action Prompts"))
+
+    def _reset_quick_action_prompts_clicked(self) -> None:
+        """Resets all quick action prompt instructions to built-in defaults."""
+        self.settings.reset_quick_action_prompts()
+        self.settings.save()
+        if hasattr(self, "prompt_inputs"):
+            for k, widget in self.prompt_inputs.items():
+                widget.setPlainText(self.settings.get_quick_action_instruction(k))
+        self.statusBar().showMessage("Quick Action Prompts reset to defaults.", 4000)
+        self._log("Quick Action Prompts reset to default configurations.")
+
+    def _open_prompts_tab(self) -> None:
+        """Navigates to Preferences -> Copilot Prompts sub-tab."""
+        if hasattr(self, "preferences_tab"):
+            self.tabs.setCurrentWidget(self.preferences_tab)
+        if hasattr(self, "pref_subtabs") and hasattr(self, "tab_prompts_scroll"):
+            self.pref_subtabs.setCurrentWidget(self.tab_prompts_scroll)
+        elif hasattr(self, "pref_subtabs") and hasattr(self, "tab_prompts"):
+            self.pref_subtabs.setCurrentWidget(self.tab_prompts)
+
+    def _open_prompts_tab_from_hud(self) -> None:
+        """Navigates to the Prompts configuration tab when triggered from HUD."""
+        self._open_prompts_tab()
+        self.statusBar().showMessage("Opened Quick Action Prompts customization tab.", 4000)
 
     def _toggle_copilot_hud(self) -> None:
         """Switches to the Live Meeting Copilot dashboard sub-tab."""
@@ -2269,8 +2495,33 @@ class MainWindow(QMainWindow):
             self.hud.meeting_mode_changed.connect(self._on_hud_meeting_mode_changed)
             self.hud.asr_provider_changed.connect(self._on_hud_asr_provider_changed)
             self.hud.enable_copilot_requested.connect(self._enable_copilot_from_hud)
+            self.hud.open_prompts_settings_requested.connect(self._open_prompts_tab_from_hud)
             self.hud.set_copilot_enabled(self.settings.copilot_enabled)
             self.copilot_widget = self.hud
+
+            # Configure agent and update initial HUD engine status
+            api_key = ""
+            if self.settings.llm_provider == "openrouter":
+                api_key = self.settings.openrouter_api_key
+            elif self.settings.llm_provider == "gemini":
+                api_key = self.settings.gemini_api_key
+            elif self.settings.llm_provider == "lm_studio" and not self.settings.lm_studio_bypass_auth:
+                api_key = self.settings.lm_studio_api_key
+
+            endpoint = None
+            if self.settings.llm_provider == "ollama":
+                endpoint = self.settings.ollama_endpoint
+            elif self.settings.llm_provider == "lm_studio":
+                endpoint = self.settings.lm_studio_endpoint
+
+            self.copilot_agent.configure(
+                provider=self.settings.llm_provider,
+                api_key=api_key,
+                model_name=self.settings.llm_model,
+                custom_endpoint=endpoint,
+                privacy_mode=self.settings.privacy_mode
+            )
+            self.hud.update_engine_status(self.copilot_agent.get_engine_info())
 
     def _on_hud_meeting_mode_changed(self, mode: str) -> None:
         """Handle meeting mode switch initiated directly from Copilot widget badge."""

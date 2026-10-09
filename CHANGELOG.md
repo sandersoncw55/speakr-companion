@@ -4,6 +4,36 @@ All notable changes to the Speakr Windows Companion application are documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-09
+
+### Added
+- **Dedicated "Copilot Prompts" Sub-Tab (`gui/main_window.py`):**
+  - Added a dedicated 4th subtab under Preferences specifically for customizing Live Copilot Quick Action instructions (`what_to_ask`, `catch_me_up`, `clarify_ownership`, `spot_risks`, `explain_jargon`).
+  - Added clean dark-styled multi-line prompt editors with generous height, helper text, `💾 Save Quick Action Prompts`, and `🔄 Reset Prompts to Defaults` buttons.
+- **Configurable Quick Action Prompts System (`core/config.py`, `core/copilot/agent.py`, `core/copilot/prompts.py`):**
+  - Added persistent dictionary storage and property helpers (`DEFAULT_QUICK_ACTION_PROMPTS`, `get_quick_action_instruction()`, `reset_quick_action_prompts()`) supporting string and structured dictionary formats.
+  - Quick action execution now accepts custom runtime instructions dispatched directly to local or cloud LLMs.
+- **Reasoning Engine Healthcheck & Status Indicators (`core/copilot/agent.py`, `gui/hud.py`, `gui/main_window.py`):**
+  - Added real-time healthcheck engine (`check_health()`) supporting Offline Extractive, LM Studio, Ollama, OpenRouter, and Gemini providers.
+  - Added dynamic Reasoning Engine badge, live status dot (🟢 Available, 🟡 Testing, 🔴 Unreachable), and one-click `⚡ Check Engine` button to the HUD header.
+- **Topic-Based Rolling Meeting Summary (`core/copilot/memory.py`, `core/copilot/agent.py`, `core/copilot/prompts.py`, `gui/hud.py`):**
+  - Replaced repetitive verbatim quotes with structured topic synthesis cards (`topics` list with title, category, and bullet points).
+  - Enhanced system prompt with strict negative constraints against casual banter, hallway chatter, and filler remarks.
+  - Extractive offline engine upgraded with technical keyword scoring, conversational noise filtering, and domain-based topic clustering.
+- **One-Click Prompt Customization from HUD (`gui/hud.py`, `gui/main_window.py`):**
+  - Added `⚙️ Prompts` shortcut button to the HUD Quick Actions toolbar with direct navigation to the Preferences customization subtab.
+
+### Fixed & Improved
+- **Preferences Tab Decluttering & Responsive Vertical Scrolling (`gui/main_window.py`):**
+  - Wrapped both `Live Copilot & ASR` and `Copilot Prompts` tabs in `QScrollArea(widgetResizable=True)` containers, preventing squished or clipped inputs on lower screen resolutions.
+  - Replaced bulky prompt textareas in `Live Copilot & ASR` with a compact `✏️ Configure Prompt Templates →` navigation card.
+- **Copilot Scratchpad Scrollbars (`gui/hud.py`):**
+  - Configured explicit vertical and horizontal scrollbars with custom dark/light styled scroll handles on both the Rolling Executive Summary browser and Custom Notes scratchpad list.
+- **Audio Recorder Thread Termination Guard (`core/recorder.py`):**
+  - Added safety checks before joining recorder threads to prevent `RuntimeError("cannot join thread before it is started")` when stopping before audio capture begins.
+
+---
+
 ## [1.3.0] - 2026-10-05
 
 ### Added

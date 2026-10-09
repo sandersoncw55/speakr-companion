@@ -28,12 +28,21 @@ def test_memory_and_scratchpad():
     # 2. Set Rolling Summary
     mem.set_rolling_summary({
         "topic": "SAN Controller Firmware Rollback",
+        "summary_bullets": ["The team is finalizing cutover precautions for SAN storage nodes before deploying firmware v3.4.1."],
         "executive_summary": "The team is finalizing cutover precautions for SAN storage nodes before deploying firmware v3.4.1.",
         "key_decisions": ["Proceed with snapshot validation at 2 AM maintenance window."]
     })
     assert mem.rolling_summary["topic"] == "SAN Controller Firmware Rollback"
     assert "cutover precautions" in mem.rolling_summary["executive_summary"]
     assert len(mem.rolling_summary["key_decisions"]) == 1
+    assert len(mem.rolling_summary["summary_bullets"]) == 1
+
+    # Verify rolling updates accumulate instead of wiping
+    mem.set_rolling_summary({
+        "summary_bullets": ["Verified secondary node snapshot consistency."]
+    })
+    assert len(mem.rolling_summary["summary_bullets"]) == 2
+    assert "Verified secondary node" in mem.rolling_summary["summary_bullets"][1]
 
     # 3. Suggested questions & user interactive status
     mem.set_suggested_questions([
@@ -158,8 +167,13 @@ def test_offline_copilot_engine():
     # 1. Periodic offline generation
     res = engine.generate_periodic(mem.turns, [])
     assert "rolling_summary" in res
+    assert "summary_bullets" in res["rolling_summary"]
+    assert len(res["rolling_summary"]["summary_bullets"]) > 0
     assert "suggested_questions" in res
     assert len(res["suggested_questions"]) > 0
+    # Questions must be targeted technical questions citing dialogue entities
+    probing_texts = [q["question"] for q in res["suggested_questions"]]
+    assert any("SAN" in q or "controller" in q or "firmware" in q or "rollback" in q for q in probing_texts)
     assert "follow_up_suggestions" in res
     assert len(res["follow_up_suggestions"]) > 0
     
@@ -230,6 +244,10 @@ def test_hud_controls_and_splitter():
     assert hasattr(widget, "summary_browser")
     assert hasattr(widget, "notes_list")
     assert hasattr(widget, "add_note_input")
+    from PySide6.QtCore import Qt
+    assert widget.notes_list.verticalScrollBarPolicy() == Qt.ScrollBarAsNeeded
+    assert widget.summary_browser.verticalScrollBarPolicy() == Qt.ScrollBarAsNeeded
+    assert widget.notes_list.wordWrap() is True
     
     # Tier 3: Bottom Live Transcript Feed
     assert hasattr(widget, "ticker_box")
@@ -951,7 +969,7 @@ def test_open_speakr_web_instance_button():
     from gui.main_window import MainWindow
 
     app = QApplication.instance() or QApplication([])
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         cfg = Settings()
         cfg.settings_file = Path(tmpdir) / "settings.json"
         cfg.data = dict(Settings.DEFAULT_SETTINGS)
@@ -988,11 +1006,203 @@ def test_open_speakr_web_instance_button():
                 opened_qurl = mock_open.call_args[0][0]
                 assert opened_qurl.toString() == "https://speakr.example.com"
         finally:
+            w.monitor.stop()
             if w.hud:
                 w.hud.close()
             rec.terminate()
             w.close()
     print("[OK] Open Speakr Web Instance Button passed.")
+
+
+def test_noise_filtering_and_topic_cards():
+    """Verifies that casual conversational banter and filler quotes are filtered out, and topics are structured."""
+    print("Testing Noise Filtering and Structured Topic Cards...")
+    from core.copilot.agent import OfflineExtractiveEngine
+    from core.copilot.memory import CopilotMemory
+
+    engine = OfflineExtractiveEngine()
+    mem = CopilotMemory()
+
+    # Mix technical engineering dialogue with the exact casual filler from trans.md
+    mem.add_transcript("participants", "I mean, it didn't hurt.", time.time(), 1)
+    mem.add_transcript("participants", "I like it, but I mean, dude, we could never do that here.", time.time(), 2)
+    mem.add_transcript("participants", "We tested the thin provisioning script on BCP storage clusters yesterday.", time.time(), 3)
+    mem.add_transcript("participants", "Surprisingly, it was Milwaukee and I was not looking forward to going to Milwaukee at all.", time.time(), 4)
+    mem.add_transcript("participants", "I may have drink a few liters, it's about the boot dude.", time.time(), 5)
+    mem.add_transcript("you", "We confirmed each VM conversion takes approximately fifteen minutes.", time.time(), 6)
+    mem.add_transcript("participants", "I was going to assign him that Jira story for storage vMotion.", time.time(), 7)
+    mem.add_transcript("participants", "We'll see you in the next video.", time.time(), 8)
+    mem.add_transcript("participants", "Casey was the one that convinced me to cancel it.", time.time(), 9)
+
+    res = engine.generate_periodic(mem.turns, [])
+    rolling = res["rolling_summary"]
+
+    # 1. Verify structured topics are generated
+    assert "topics" in rolling
+    assert len(rolling["topics"]) > 0
+    top = rolling["topics"][0]
+    assert "title" in top
+    assert "summary" in top
+    assert "Storage & VDI Infrastructure" in [t["title"] for t in rolling["topics"]] or "Technical" in [t["title"] for t in rolling["topics"]]
+
+    # 2. Verify all noise is strictly excluded from topics, summary_bullets, and follow-ups
+    combined_summary_text = " ".join(rolling.get("summary_bullets", [])) + " " + rolling.get("executive_summary", "")
+    for t in rolling.get("topics", []):
+        combined_summary_text += " " + t.get("summary", "") + " " + " ".join(t.get("key_points", []))
+
+    follow_up_tasks = [item["task"] for item in res.get("follow_up_suggestions", [])]
+
+    banned_phrases = [
+        "milwaukee", "drink a few liters", "boot dude", "next video",
+        "could never do that here", "dude, we could never", "it didn't hurt"
+    ]
+    for banned in banned_phrases:
+        assert banned not in combined_summary_text.lower(), f"Banned noise '{banned}' leaked into summary!"
+        for task in follow_up_tasks:
+            assert banned not in task.lower(), f"Banned noise '{banned}' leaked into follow-up task: {task}!"
+
+    # 3. Valid technical deliverable (Jira story) should be captured
+    assert any("jira" in task.lower() or "story" in task.lower() for task in follow_up_tasks)
+    print("[OK] Noise filtering and structured topic cards passed.")
+
+
+def test_reasoning_engine_healthcheck_and_badge():
+    """Verifies agent check_health() and HUD reasoning engine badge and status dot."""
+    print("Testing Reasoning Engine Healthcheck and Status Badge...")
+    from PySide6.QtWidgets import QApplication
+    from core.copilot.memory import CopilotMemory
+    from core.copilot.agent import CopilotAgent
+    from gui.hud import CopilotDashboardWidget
+
+    app = QApplication.instance() or QApplication([])
+    mem = CopilotMemory()
+    agent = CopilotAgent(mem, on_results_callback=lambda r: None)
+
+    # 1. Offline healthcheck
+    agent.configure(provider="offline")
+    h_offline = agent.check_health()
+    assert h_offline["ok"] is True
+    assert h_offline["status"] == "offline"
+    assert "Offline extractive" in h_offline["message"]
+
+    # 2. Unconfigured cloud healthcheck
+    agent.configure(provider="openrouter", api_key="")
+    h_unconf = agent.check_health()
+    assert h_unconf["ok"] is False
+    assert h_unconf["status"] == "unconfigured"
+
+    # 3. HUD widgets presence & update
+    hud = CopilotDashboardWidget(mem, agent)
+    try:
+        assert hasattr(hud, "engine_badge")
+        assert hasattr(hud, "engine_status_lbl")
+        assert hasattr(hud, "healthcheck_btn")
+
+        hud.update_engine_status({
+            "provider": "lm_studio",
+            "model": "qwen2.5-coder",
+            "status": "online",
+            "latency_ms": 42.0
+        })
+        assert "LM Studio" in hud.engine_badge.text()
+        assert "qwen2.5-coder" in hud.engine_badge.text()
+        assert "Online" in hud.engine_status_lbl.text()
+        assert "42ms" in hud.engine_status_lbl.text()
+    finally:
+        hud.close()
+
+    print("[OK] Reasoning Engine Healthcheck and Status Badge passed.")
+
+
+def test_configurable_quick_action_prompts():
+    """Verifies that configurable prompts can be retrieved, edited, saved, and reset."""
+    print("Testing Configurable Quick Action Prompts...")
+    import tempfile
+    from core.config import Settings
+    from core.copilot.memory import CopilotMemory
+    from core.copilot.agent import CopilotAgent
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cfg = Settings()
+        cfg.settings_file = Path(tmpdir) / "settings.json"
+        cfg.data = dict(Settings.DEFAULT_SETTINGS)
+
+        # Check default prompt retrieval
+        prompt1 = cfg.get_quick_action_instruction("what_to_ask")
+        assert "Principal Systems Architect" in prompt1
+
+        # Customize prompt
+        custom_instructions = dict(cfg.quick_action_prompts)
+        custom_instructions["what_to_ask"] = "Focus specifically on Kubernetes pod security policies and Cilium CNI."
+        cfg.quick_action_prompts = custom_instructions
+        cfg.save()
+
+        # Reload from disk
+        cfg2 = Settings()
+        cfg2.settings_file = cfg.settings_file
+        cfg2.load()
+        assert cfg2.get_quick_action_instruction("what_to_ask") == "Focus specifically on Kubernetes pod security policies and Cilium CNI."
+
+        # Reset to defaults
+        cfg2.reset_quick_action_prompts()
+        assert "Principal Systems Architect" in cfg2.get_quick_action_instruction("what_to_ask")
+
+        # Test agent execution with custom prompt parameter
+        mem = CopilotMemory()
+        mem.add_transcript("participants", "We are debugging the Cilium CNI network policies.", time.time(), 1)
+        results = []
+        agent = CopilotAgent(mem, on_results_callback=lambda r: results.append(r))
+        agent.run_quick_prompt("what_to_ask", custom_instruction="Identify Cilium CNI network drop reasons.")
+        time.sleep(0.3)
+        assert len(results) > 0
+        assert results[0]["type"] == "quick_action"
+
+        # Test GUI layout: Dedicated Copilot Prompts subtab, scroll areas, and button navigation
+        from PySide6.QtWidgets import QApplication
+        from core.storage import RecordingsManager
+        from core.recorder import AudioRecorder
+        from core.uploader import AudioUploader
+        from gui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        storage = RecordingsManager(cfg)
+        rec = AudioRecorder()
+        upl = AudioUploader(cfg, storage)
+        win = MainWindow(cfg, rec, upl, storage)
+        try:
+            assert hasattr(win, "tab_copilot_scroll")
+            assert hasattr(win, "tab_prompts_scroll")
+            assert hasattr(win, "open_prompts_tab_btn")
+            assert hasattr(win, "prompt_inputs")
+            assert len(win.prompt_inputs) == 5
+
+            # Test navigation from button to Prompts subtab
+            win.open_prompts_tab_btn.click()
+            assert win.pref_subtabs.currentWidget() == win.tab_prompts_scroll
+
+            # Test prompt inputs editing and save via UI
+            win.prompt_inputs["what_to_ask"].setPlainText("Customized via UI test.")
+            win._save_quick_action_prompts_clicked()
+            assert win.settings.get_quick_action_instruction("what_to_ask") == "Customized via UI test."
+
+            # Test reset via UI
+            win._reset_quick_action_prompts_clicked()
+            assert "Principal Systems Architect" in win.settings.get_quick_action_instruction("what_to_ask")
+
+            # Test HUD gear button navigation to prompts tab
+            win._ensure_copilot_session()
+            assert hasattr(win.hud, "btn_cfg_prompts")
+            win.hud.btn_cfg_prompts.click()
+            assert win.tabs.currentWidget() == win.preferences_tab
+            assert win.pref_subtabs.currentWidget() == win.tab_prompts_scroll
+        finally:
+            win.monitor.stop()
+            if win.hud:
+                win.hud.close()
+            rec.terminate()
+            win.close()
+
+    print("[OK] Configurable Quick Action Prompts passed.")
 
 
 if __name__ == "__main__":
@@ -1014,4 +1224,7 @@ if __name__ == "__main__":
     test_history_icon_buttons_and_model_fetch_ui()
     test_light_and_dark_theme_system()
     test_open_speakr_web_instance_button()
+    test_noise_filtering_and_topic_cards()
+    test_reasoning_engine_healthcheck_and_badge()
+    test_configurable_quick_action_prompts()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")

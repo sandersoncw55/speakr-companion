@@ -41,6 +41,8 @@ class CopilotMemory:
         # Structured Intelligence State
         self.rolling_summary: Dict[str, Any] = {
             "topic": "",
+            "topics": [],
+            "summary_bullets": [],
             "executive_summary": "",
             "key_decisions": []
         }
@@ -104,18 +106,91 @@ class CopilotMemory:
     # --- Rolling Summary Mutators ---
 
     def set_rolling_summary(self, summary_data: Dict[str, Any]):
-        """Updates rolling executive summary and key decisions."""
+        """Updates rolling executive summary and key decisions with accumulating rolling topic and bullet updates."""
         with self.lock:
             if not isinstance(summary_data, dict):
                 return
             topic = summary_data.get("topic", "").strip()
             exec_sum = summary_data.get("executive_summary", "").strip()
+            incoming_bullets = summary_data.get("summary_bullets", [])
+            incoming_topics = summary_data.get("topics", [])
             decisions = summary_data.get("key_decisions", [])
             
             if topic:
                 self.rolling_summary["topic"] = topic
+
+            # 1. Accumulate and update Topic Cards
+            if isinstance(incoming_topics, list) and incoming_topics:
+                current_topics = self.rolling_summary.setdefault("topics", [])
+                for it in incoming_topics:
+                    if not isinstance(it, dict):
+                        continue
+                    title = it.get("title", "").strip()
+                    if not title:
+                        continue
+                    summary = it.get("summary", "").strip()
+                    status = it.get("status", "in_progress").strip()
+                    key_points = [p.strip() for p in it.get("key_points", []) if isinstance(p, str) and p.strip()]
+
+                    # Check if matching topic already exists
+                    matched = None
+                    title_norm = title.lower()
+                    for existing in current_topics:
+                        existing_norm = existing.get("title", "").lower()
+                        if title_norm in existing_norm or existing_norm in title_norm:
+                            matched = existing
+                            break
+
+                    if matched:
+                        if summary:
+                            matched["summary"] = summary
+                        if status:
+                            matched["status"] = status
+                        if key_points:
+                            existing_pts = set(matched.get("key_points", []))
+                            for kp in key_points:
+                                if kp not in existing_pts:
+                                    matched.setdefault("key_points", []).append(kp)
+                                    existing_pts.add(kp)
+                    else:
+                        current_topics.append({
+                            "title": title,
+                            "summary": summary,
+                            "status": status,
+                            "key_points": key_points
+                        })
+
+                if len(current_topics) > 12:
+                    self.rolling_summary["topics"] = current_topics[-12:]
+
+                if not topic and current_topics:
+                    self.rolling_summary["topic"] = current_topics[-1]["title"]
+
+            # 2. Ensure summary_bullets list exists
+            current_bullets = self.rolling_summary.setdefault("summary_bullets", [])
+            
+            # Accumulate and roll forward synthesized bullet points
+            if isinstance(incoming_bullets, list) and incoming_bullets:
+                existing_norms = {b.strip().lower().rstrip(".") for b in current_bullets if isinstance(b, str)}
+                for b in incoming_bullets:
+                    if isinstance(b, str) and b.strip():
+                        b_clean = b.strip()
+                        norm = b_clean.lower().rstrip(".")
+                        if norm not in existing_norms:
+                            current_bullets.append(b_clean)
+                            existing_norms.add(norm)
+            elif exec_sum and not current_bullets:
+                current_bullets.append(exec_sum)
+            
+            # Cap rolling bullet history
+            if len(current_bullets) > 25:
+                self.rolling_summary["summary_bullets"] = current_bullets[-25:]
+
+            # Keep executive_summary string synchronized for backward compatibility
             if exec_sum:
                 self.rolling_summary["executive_summary"] = exec_sum
+            elif self.rolling_summary["summary_bullets"]:
+                self.rolling_summary["executive_summary"] = " ".join(self.rolling_summary["summary_bullets"][-3:])
             
             if isinstance(decisions, list):
                 clean_decisions = []
@@ -290,12 +365,27 @@ class CopilotMemory:
             
             # 1. Topic & Executive Summary
             topic = self.rolling_summary.get("topic", "")
+            topics_list = self.rolling_summary.get("topics", [])
+            bullets = self.rolling_summary.get("summary_bullets", [])
             exec_sum = self.rolling_summary.get("executive_summary", "")
             if topic:
                 md_lines.append(f"**Topic:** {topic}\n")
             
             md_lines.append("## 📌 Executive Summary")
-            if exec_sum:
+            if topics_list:
+                for top in topics_list:
+                    status_badge = f" *({top.get('status', 'in_progress').replace('_', ' ').title()})*" if top.get('status') else ""
+                    md_lines.append(f"### 🔹 {top.get('title', 'Discussion Topic')}{status_badge}")
+                    if top.get("summary"):
+                        md_lines.append(f"{top['summary']}\n")
+                    for kp in top.get("key_points", []):
+                        md_lines.append(f"- {kp}")
+                    md_lines.append("")
+            elif bullets:
+                for b in bullets:
+                    md_lines.append(f"- {b}")
+                md_lines.append("")
+            elif exec_sum:
                 md_lines.append(f"{exec_sum}\n")
             else:
                 md_lines.append("*Summary will synthesize as discussion progresses.*\n")
@@ -374,6 +464,8 @@ class CopilotMemory:
             self.turns.clear()
             self.rolling_summary = {
                 "topic": "",
+                "topics": [],
+                "summary_bullets": [],
                 "executive_summary": "",
                 "key_decisions": []
             }

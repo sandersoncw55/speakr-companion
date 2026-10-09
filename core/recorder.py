@@ -251,13 +251,14 @@ class AudioRecorder:
 
         self.is_recording = False
         
-        # Wait for threads to complete
-        if self.mic_thread:
-            self.mic_thread.join(timeout=2.0)
-        if self.loopback_thread:
-            self.loopback_thread.join(timeout=2.0)
-        if self.mix_thread:
-            self.mix_thread.join(timeout=2.0)
+        # Wait for threads to complete safely
+        for t in (self.mic_thread, self.loopback_thread, self.mix_thread):
+            if t is not None:
+                try:
+                    if t.is_alive():
+                        t.join(timeout=2.0)
+                except RuntimeError:
+                    pass
 
         # Close intermediate WAV file
         if self.wav_file:

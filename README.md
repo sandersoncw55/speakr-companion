@@ -14,8 +14,8 @@ Download the latest version from [**GitHub Releases**](https://github.com/sander
 
 | Package | Description | Recommended For |
 | :--- | :--- | :--- |
-| 🚀 [**`SpeakrCompanion-Setup-v1.3.0.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.3.0/SpeakrCompanion-Setup-v1.3.0.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
-| 🗜️ [**`SpeakrCompanion_Portable_v1.3.0.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.3.0/SpeakrCompanion_Portable_v1.3.0.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
+| 🚀 [**`SpeakrCompanion-Setup-v1.4.0.exe`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.4.0/SpeakrCompanion-Setup-v1.4.0.exe) | Standard Windows Setup Wizard with Start Menu & Desktop shortcuts, optional auto-start on boot, and uninstaller. | **All Users (Standard Install)** |
+| 🗜️ [**`SpeakrCompanion_Portable_v1.4.0.zip`**](https://github.com/sandersoncw55/speakr-companion/releases/download/v1.4.0/SpeakrCompanion_Portable_v1.4.0.zip) | Standalone portable archive containing `SpeakrCompanion.exe`. No installation required. | **USB Drives / Portable Use** |
 
 > [!NOTE]
 > The setup installer runs as a standard per-user installation in `%LOCALAPPDATA%\Programs\Speakr Companion` and does not require Administrator privileges or UAC elevation.
@@ -137,7 +137,7 @@ powershell -ExecutionPolicy Bypass -File .\package_release.ps1
 
 A GitHub Actions workflow (`.github/workflows/release.yml`) is included. Whenever you push a version tag, GitHub cloud runners automatically build and publish the release:
 ```powershell
-git tag v1.3.0
-git push origin v1.3.0
+git tag v1.4.0
+git push origin v1.4.0
 ```
 

@@ -221,6 +221,7 @@ class CopilotDashboardWidget(QWidget):
     meeting_mode_changed = Signal(str)
     asr_provider_changed = Signal(str)
     enable_copilot_requested = Signal()
+    open_prompts_settings_requested = Signal()
 
     def __init__(self, memory: CopilotMemory, copilot_agent, initial_opacity: float = 0.92, theme: str = "dark", parent=None):
         super().__init__(parent)
@@ -376,6 +377,35 @@ class CopilotDashboardWidget(QWidget):
         self.asr_combo.currentIndexChanged.connect(self._on_asr_combo_changed)
         header_layout.addWidget(self.asr_combo)
 
+        # Reasoning Engine indicator and live status
+        self.engine_badge = QLabel("🧠 Reasoning Engine: Offline")
+        self.engine_badge.setStyleSheet("""
+            QLabel {
+                background-color: #0f172a; color: #38bdf8; border: 1px solid #334155;
+                border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 600;
+            }
+        """)
+        self.engine_badge.setToolTip("Active reasoning engine for synthesis & live probing")
+        header_layout.addWidget(self.engine_badge)
+
+        self.engine_status_lbl = QLabel("⚪ Offline")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 500; color: #94a3b8;")
+        self.engine_status_lbl.setToolTip("Engine health status")
+        header_layout.addWidget(self.engine_status_lbl)
+
+        # Quick Healthcheck button
+        self.healthcheck_btn = QPushButton("⚡ Check Engine")
+        self.healthcheck_btn.setToolTip("Test connection and latency to configured reasoning engine")
+        self.healthcheck_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #334155; color: #38bdf8; border: 1px solid #0284c7;
+                border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 600;
+            }
+            QPushButton:hover { background-color: #0369a1; color: #ffffff; }
+        """)
+        self.healthcheck_btn.clicked.connect(self._run_engine_healthcheck)
+        header_layout.addWidget(self.healthcheck_btn)
+
         header_layout.addStretch()
 
         # Copy Full Notes Markdown button
@@ -430,30 +460,51 @@ class CopilotDashboardWidget(QWidget):
 
         self.btn_ask = QPushButton("💡 What to ask?")
         self.btn_ask.setStyleSheet(self._quick_btn_style("#2563eb"))
-        self.btn_ask.clicked.connect(lambda: self.agent.run_quick_prompt("what_to_ask"))
+        self.btn_ask.clicked.connect(lambda: self._trigger_quick_action("what_to_ask"))
         btn_row.addWidget(self.btn_ask)
 
         self.btn_catchup = QPushButton("⏱️ Catch up")
         self.btn_catchup.setStyleSheet(self._quick_btn_style("#0d9488"))
-        self.btn_catchup.clicked.connect(lambda: self.agent.run_quick_prompt("catch_me_up"))
+        self.btn_catchup.clicked.connect(lambda: self._trigger_quick_action("catch_me_up"))
         btn_row.addWidget(self.btn_catchup)
 
         self.btn_owners = QPushButton("🎯 Action Items")
         self.btn_owners.setStyleSheet(self._quick_btn_style("#4f46e5"))
-        self.btn_owners.clicked.connect(lambda: self.agent.run_quick_prompt("clarify_ownership"))
+        self.btn_owners.clicked.connect(lambda: self._trigger_quick_action("clarify_ownership"))
         btn_row.addWidget(self.btn_owners)
 
         self.btn_risks = QPushButton("🚩 Risks")
         self.btn_risks.setStyleSheet(self._quick_btn_style("#b91c1c"))
-        self.btn_risks.clicked.connect(lambda: self.agent.run_quick_prompt("spot_risks"))
+        self.btn_risks.clicked.connect(lambda: self._trigger_quick_action("spot_risks"))
         btn_row.addWidget(self.btn_risks)
 
         self.btn_jargon = QPushButton("🔍 Jargon")
         self.btn_jargon.setStyleSheet(self._quick_btn_style("#d97706"))
-        self.btn_jargon.clicked.connect(lambda: self.agent.run_quick_prompt("explain_jargon"))
+        self.btn_jargon.clicked.connect(lambda: self._trigger_quick_action("explain_jargon"))
         btn_row.addWidget(self.btn_jargon)
 
         btn_row.addStretch()
+
+        self.btn_cfg_prompts = QPushButton("⚙️ Prompts")
+        self.btn_cfg_prompts.setToolTip("Customize Live Copilot Quick Action instructions in Preferences")
+        self.btn_cfg_prompts.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                color: #94a3b8;
+                font-size: 11px;
+                padding: 3px 8px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+                color: #38bdf8;
+                border-color: #38bdf8;
+            }
+        """)
+        self.btn_cfg_prompts.clicked.connect(self.open_prompts_settings_requested.emit)
+        btn_row.addWidget(self.btn_cfg_prompts)
         quick_layout.addLayout(btn_row)
 
         # Ad-hoc write-in query box
@@ -675,6 +726,8 @@ class CopilotDashboardWidget(QWidget):
         # 1. Rolling Executive Summary Browser
         self.summary_browser = QTextBrowser()
         self.summary_browser.setOpenExternalLinks(True)
+        self.summary_browser.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.summary_browser.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.summary_browser.setStyleSheet("""
             QTextBrowser {
                 background-color: #020617;
@@ -684,6 +737,40 @@ class CopilotDashboardWidget(QWidget):
                 font-size: 12px;
                 line-height: 1.4;
                 padding: 6px;
+            }
+            QScrollBar:vertical {
+                background: #020617;
+                width: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #334155;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #64748b;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar:horizontal {
+                background: #020617;
+                height: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #334155;
+                min-width: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #64748b;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
             }
         """)
         self._update_summary_browser_text()
@@ -696,11 +783,58 @@ class CopilotDashboardWidget(QWidget):
         un_layout.setSpacing(4)
 
         self.notes_list = QListWidget()
+        self.notes_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.notes_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.notes_list.setWordWrap(True)
+        self.notes_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.notes_list.setStyleSheet("""
-            QListWidget { background-color: #020617; border: 1px solid #0f172a; border-radius: 4px; }
+            QListWidget {
+                background-color: #020617;
+                border: 1px solid #0f172a;
+                border-radius: 4px;
+            }
             QListWidget::item {
-                background-color: #0f172a; border: 1px solid #334155; border-radius: 4px;
-                padding: 3px 6px; margin: 2px; color: #cbd5e1; font-size: 11px;
+                background-color: #0f172a;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding: 3px 6px;
+                margin: 2px;
+                color: #cbd5e1;
+                font-size: 11px;
+            }
+            QScrollBar:vertical {
+                background: #020617;
+                width: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #334155;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #64748b;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar:horizontal {
+                background: #020617;
+                height: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #334155;
+                min-width: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #64748b;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
             }
         """)
         un_layout.addWidget(self.notes_list, 1)
@@ -898,12 +1032,89 @@ class CopilotDashboardWidget(QWidget):
                 line-height: 1.4;
                 padding: 6px;
             }}
+            QScrollBar:vertical {{
+                background: {p['bg_input']};
+                width: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {p['border_medium']};
+                min-height: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {p['text_muted']};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar:horizontal {{
+                background: {p['bg_input']};
+                height: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {p['border_medium']};
+                min-width: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {p['text_muted']};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+            }}
         """)
         self.notes_list.setStyleSheet(f"""
-            QListWidget {{ background-color: {p['bg_input']}; border: 1px solid {p['border_subtle']}; border-radius: 4px; }}
+            QListWidget {{
+                background-color: {p['bg_input']};
+                border: 1px solid {p['border_subtle']};
+                border-radius: 4px;
+            }}
             QListWidget::item {{
-                background-color: {p['bg_surface']}; border: 1px solid {p['border_subtle']}; border-radius: 4px;
-                padding: 3px 6px; margin: 2px; color: {p['text_secondary']}; font-size: 11px;
+                background-color: {p['bg_surface']};
+                border: 1px solid {p['border_subtle']};
+                border-radius: 4px;
+                padding: 3px 6px;
+                margin: 2px;
+                color: {p['text_secondary']};
+                font-size: 11px;
+            }}
+            QScrollBar:vertical {{
+                background: {p['bg_input']};
+                width: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {p['border_medium']};
+                min-height: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {p['text_muted']};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar:horizontal {{
+                background: {p['bg_input']};
+                height: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {p['border_medium']};
+                min-width: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {p['text_muted']};
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
             }}
         """)
 
@@ -934,12 +1145,123 @@ class CopilotDashboardWidget(QWidget):
             scrollbar = self.ticker_box.verticalScrollBar()
             scrollbar.setValue(scrollbar.maximum())
 
+    def _trigger_quick_action(self, key: str):
+        """Dispatches quick action prompt using user-customized instructions from Settings."""
+        instruction = Settings().get_quick_action_instruction(key)
+        self.agent.run_quick_prompt(key, custom_instruction=instruction)
+
     def _on_agent_results_gui(self, results: dict):
-        """Refreshes suggested questions, follow-ups, and summary."""
+        """Refreshes suggested questions, follow-ups, summary, and engine status."""
         self._render_questions()
         self._render_follow_ups()
         self._render_notes()
         self._update_summary_browser_text()
+        if "engine_info" in results:
+            self.update_engine_status(results["engine_info"])
+
+    def update_engine_status(self, engine_info: Optional[Dict[str, Any]] = None):
+        """Updates the reasoning engine badge and status dot in the header bar."""
+        if not hasattr(self, "engine_badge") or not hasattr(self, "engine_status_lbl"):
+            return
+
+        if engine_info is None:
+            engine_info = self.agent.get_engine_info() if hasattr(self.agent, "get_engine_info") else {}
+
+        provider = engine_info.get("provider", "offline")
+        model = engine_info.get("model", "")
+        status = engine_info.get("status", "idle")
+        latency = engine_info.get("latency_ms", 0.0)
+        err = engine_info.get("error_message", "")
+
+        provider_labels = {
+            "offline": "Offline Engine",
+            "lm_studio": "LM Studio",
+            "ollama": "Ollama",
+            "openrouter": "OpenRouter",
+            "gemini": "Google Gemini"
+        }
+        prov_name = provider_labels.get(provider, provider.upper())
+        if model and provider != "offline":
+            self.engine_badge.setText(f"🧠 {prov_name} ({model})")
+        else:
+            self.engine_badge.setText(f"🧠 {prov_name}")
+
+        p = get_theme_palette(self.theme)
+        if status in ("online", "success"):
+            lat_str = f" ({latency:.0f}ms)" if latency > 0 else ""
+            self.engine_status_lbl.setText(f"🟢 Online{lat_str}")
+            self.engine_status_lbl.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {p['accent_emerald']};")
+            self.engine_status_lbl.setToolTip(f"Engine connected and active ({latency:.0f} ms)")
+        elif status == "offline":
+            self.engine_status_lbl.setText("⚪ Offline (Local)")
+            self.engine_status_lbl.setStyleSheet(f"font-size: 11px; font-weight: 500; color: {p['text_muted']};")
+            self.engine_status_lbl.setToolTip("100% Offline Heuristic Engine active")
+        elif status == "offline_fallback":
+            self.engine_status_lbl.setText("🟡 Fallback")
+            self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #f59e0b;")
+            self.engine_status_lbl.setToolTip(f"Remote LLM unreachable; operating in offline fallback.\nError: {err}")
+        elif status == "analyzing":
+            self.engine_status_lbl.setText("🟡 Analyzing...")
+            self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 500; color: #38bdf8;")
+            self.engine_status_lbl.setToolTip("Reasoning engine currently processing transcript turns...")
+        elif status in ("error", "failed"):
+            self.engine_status_lbl.setText("🔴 Error")
+            self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #ef4444;")
+            self.engine_status_lbl.setToolTip(f"Reasoning engine error: {err}")
+        else:
+            self.engine_status_lbl.setText("⚪ Ready")
+            self.engine_status_lbl.setStyleSheet(f"font-size: 11px; font-weight: 500; color: {p['text_muted']};")
+            self.engine_status_lbl.setToolTip(f"Reasoning engine configured ({prov_name})")
+
+    def _run_engine_healthcheck(self):
+        """Executes non-blocking health check against the active reasoning engine."""
+        if not hasattr(self, "healthcheck_btn") or not hasattr(self, "agent"):
+            return
+
+        self.healthcheck_btn.setEnabled(False)
+        self.healthcheck_btn.setText("⚡ Testing...")
+        self.engine_status_lbl.setText("🟡 Checking...")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 500; color: #38bdf8;")
+
+        class HealthSignal(QObject):
+            done = Signal(dict)
+
+        bridge = HealthSignal()
+
+        def _worker():
+            try:
+                res = self.agent.check_health()
+                bridge.done.emit(res)
+            except Exception as e:
+                bridge.done.emit({"ok": False, "status": "error", "message": str(e), "latency_ms": 0.0})
+
+        def _on_done(res: dict):
+            self.healthcheck_btn.setEnabled(True)
+            self.healthcheck_btn.setText("⚡ Check Engine")
+            ok = res.get("ok", False)
+            status = res.get("status", "unknown")
+            msg = res.get("message", "")
+            lat = res.get("latency_ms", 0.0)
+
+            p = get_theme_palette(self.theme)
+            if ok and status == "online":
+                lat_str = f" ({lat:.0f}ms)" if lat > 0 else ""
+                self.engine_status_lbl.setText(f"🟢 Online{lat_str}")
+                self.engine_status_lbl.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {p['accent_emerald']};")
+                self.engine_status_lbl.setToolTip(msg)
+            elif status == "offline":
+                self.engine_status_lbl.setText("⚪ Offline (Local)")
+                self.engine_status_lbl.setStyleSheet(f"font-size: 11px; font-weight: 500; color: {p['text_muted']};")
+                self.engine_status_lbl.setToolTip(msg)
+            else:
+                self.engine_status_lbl.setText("🔴 Offline / Error")
+                self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #ef4444;")
+                self.engine_status_lbl.setToolTip(f"Healthcheck failed: {msg}")
+
+        bridge.done.connect(_on_done)
+        self._health_bridge = bridge
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _on_quick_action_gui(self, title: str, text: str):
         """Displays quick-action response in notes."""
@@ -1009,23 +1331,61 @@ class CopilotDashboardWidget(QWidget):
 
     def _update_summary_browser_text(self):
         topic = self.memory.rolling_summary.get("topic", "")
+        topics = self.memory.rolling_summary.get("topics", [])
+        bullets = self.memory.rolling_summary.get("summary_bullets", [])
         exec_sum = self.memory.rolling_summary.get("executive_summary", "")
         decisions = self.memory.rolling_summary.get("key_decisions", [])
         p = get_theme_palette(self.theme)
+        is_light = (self.theme == "light")
+
+        card_bg = p['bg_surface'] if is_light else '#1e293b'
+        card_border = p['border_medium'] if is_light else '#334155'
+        tag_bg = '#dbeafe' if is_light else '#1e3a8a'
+        tag_color = '#1d4ed8' if is_light else '#93c5fd'
 
         html_parts = []
         if topic:
-            html_parts.append(f"<div style='font-size: 13px; font-weight: bold; color: {p['accent_cyan']}; margin-bottom: 6px;'>📌 Agenda: {topic}</div>")
-        
-        html_parts.append(f"<div style='font-size: 12px; font-weight: bold; color: {p['text_muted']}; margin-bottom: 3px;'>EXECUTIVE SUMMARY:</div>")
-        if exec_sum:
+            html_parts.append(f"<div style='font-size: 13px; font-weight: bold; color: {p['accent_cyan']}; margin-bottom: 8px;'>📌 Focus: {topic}</div>")
+
+        if topics:
+            html_parts.append(f"<div style='font-size: 11px; font-weight: bold; color: {p['text_muted']}; letter-spacing: 0.5px; margin-bottom: 6px;'>🧵 CONVERSATION TOPICS & THREADS:</div>")
+            for t in topics:
+                t_title = t.get("title", "Topic")
+                t_summary = t.get("summary", "")
+                t_status = t.get("status", "in_progress").replace("_", " ").title()
+                t_points = t.get("key_points", [])
+
+                html_parts.append(f"""
+                <div style='background-color: {card_bg}; border: 1px solid {card_border}; border-radius: 5px; padding: 6px 8px; margin-bottom: 8px;'>
+                    <div style='margin-bottom: 4px;'>
+                        <span style='font-size: 12px; font-weight: bold; color: {p['accent_cyan']};'>🔹 {t_title}</span>
+                        <span style='font-size: 10px; background-color: {tag_bg}; color: {tag_color}; padding: 1px 6px; border-radius: 3px; margin-left: 6px; font-weight: 600;'>{t_status}</span>
+                    </div>
+                """)
+                if t_summary:
+                    html_parts.append(f"<div style='font-size: 11px; color: {p['text_primary']}; line-height: 1.35; margin-bottom: 4px;'>{t_summary}</div>")
+                if t_points:
+                    html_parts.append(f"<ul style='margin-top: 2px; margin-bottom: 2px; padding-left: 16px; color: {p['text_secondary']}; font-size: 11px; line-height: 1.35;'>")
+                    for pt in t_points:
+                        html_parts.append(f"<li style='margin-bottom: 2px;'>{pt}</li>")
+                    html_parts.append("</ul>")
+                html_parts.append("</div>")
+
+        elif bullets:
+            html_parts.append(f"<div style='font-size: 11px; font-weight: bold; color: {p['text_muted']}; letter-spacing: 0.5px; margin-bottom: 4px;'>📝 ROLLING MEETING SUMMARY:</div>")
+            html_parts.append(f"<ul style='margin-top: 2px; margin-bottom: 8px; padding-left: 18px; color: {p['text_primary']}; line-height: 1.45;'>")
+            for b in bullets:
+                html_parts.append(f"<li style='margin-bottom: 4px;'>{b}</li>")
+            html_parts.append("</ul>")
+        elif exec_sum:
+            html_parts.append(f"<div style='font-size: 11px; font-weight: bold; color: {p['text_muted']}; letter-spacing: 0.5px; margin-bottom: 4px;'>📝 EXECUTIVE SUMMARY:</div>")
             html_parts.append(f"<div style='color: {p['text_primary']}; font-size: 12px; line-height: 1.4; margin-bottom: 8px;'>{exec_sum}</div>")
         else:
-            html_parts.append(f"<div style='color: {p['text_muted']}; font-style: italic; font-size: 11px; margin-bottom: 8px;'>Summary will synthesize as conversation progresses...</div>")
+            html_parts.append(f"<div style='color: {p['text_muted']}; font-style: italic; font-size: 11px; margin-bottom: 8px;'>Topics will synthesize as conversation progresses...</div>")
 
         if decisions:
-            html_parts.append(f"<div style='font-size: 12px; font-weight: bold; color: {p['accent_emerald']}; margin-bottom: 3px;'>KEY DECISIONS & CONSENSUS:</div>")
-            html_parts.append(f"<ul style='margin-top: 2px; margin-bottom: 6px; padding-left: 18px; color: {p['text_secondary']};'>")
+            html_parts.append(f"<div style='font-size: 11px; font-weight: bold; color: {p['accent_emerald']}; letter-spacing: 0.5px; margin-bottom: 4px;'>🎯 KEY DECISIONS & CONSENSUS:</div>")
+            html_parts.append(f"<ul style='margin-top: 2px; margin-bottom: 6px; padding-left: 18px; color: {p['text_secondary']}; line-height: 1.4;'>")
             for d in decisions:
                 html_parts.append(f"<li style='margin-bottom: 2px;'>{d}</li>")
             html_parts.append("</ul>")

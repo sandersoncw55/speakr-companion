@@ -29,6 +29,30 @@ def get_app_icon() -> QIcon:
     return QIcon()
 
 
+DEFAULT_QUICK_ACTION_PROMPTS = {
+    "what_to_ask": {
+        "title": "💡 What to ask right now?",
+        "instruction": "Act as a Principal Systems Architect and Technical Domain Expert. Based strictly on the specific systems, components, parameters, and claims in the last 2-3 minutes of dialogue, produce 2-3 probing technical questions that interrogate edge cases, failure modes, consistency trade-offs, or integration risks. Cite specific named systems, numbers, or protocols."
+    },
+    "catch_me_up": {
+        "title": "⏱️ Catch me up (Last 2 Mins)",
+        "instruction": "In 3-4 punchy, high-signal technical bullet points, summarize the key discussions, system behaviors, architecture decisions, and current topic from the last few minutes (synthesizing content, NOT raw quotes) so the user can immediately rejoin with deep context."
+    },
+    "clarify_ownership": {
+        "title": "🎯 Action Items & Follow-ups",
+        "instruction": "Analyze who agreed to do what in the recent conversation. Formulate concrete action items with task owners, deliverables, dependencies, and dates."
+    },
+    "spot_risks": {
+        "title": "🚩 Spot Technical Risks",
+        "instruction": "Identify any technical risks, rollback gaps, performance bottlenecks, unstated assumptions, or failure modes introduced in the latest conversation turns."
+    },
+    "explain_jargon": {
+        "title": "🔍 Explain Acronyms / Jargon",
+        "instruction": "Identify any unfamiliar acronyms, internal system names, or technical terms mentioned in the recent transcript and give a 1-line clear definition for each."
+    }
+}
+
+
 class Settings:
     """Manages application settings stored in a local JSON file."""
 
@@ -79,6 +103,7 @@ class Settings:
         "copilot_cadence_seconds": 35,
         "hud_opacity": 0.92,
         "custom_quick_prompts": [],
+        "quick_action_prompts": DEFAULT_QUICK_ACTION_PROMPTS,
         "theme": "dark"
     }
 
@@ -519,4 +544,46 @@ class Settings:
     def theme(self, val: str) -> None:
         self.data["theme"] = val
         self.save()
+
+    @property
+    def quick_action_prompts(self) -> Dict[str, Dict[str, str]]:
+        stored = self.data.get("quick_action_prompts")
+        if not isinstance(stored, dict):
+            return dict(DEFAULT_QUICK_ACTION_PROMPTS)
+        merged = {}
+        for k, v in DEFAULT_QUICK_ACTION_PROMPTS.items():
+            if k in stored and isinstance(stored[k], dict):
+                merged[k] = {
+                    "title": stored[k].get("title", v["title"]),
+                    "instruction": stored[k].get("instruction", v["instruction"])
+                }
+            elif k in stored and isinstance(stored[k], str):
+                merged[k] = {
+                    "title": v["title"],
+                    "instruction": stored[k]
+                }
+            else:
+                merged[k] = dict(v)
+        return merged
+
+    @quick_action_prompts.setter
+    def quick_action_prompts(self, val: Dict[str, Any]) -> None:
+        self.data["quick_action_prompts"] = val
+        self.save()
+
+    def get_quick_action_instruction(self, key: str) -> str:
+        prompts = self.quick_action_prompts
+        if key in prompts:
+            if isinstance(prompts[key], dict) and "instruction" in prompts[key]:
+                return prompts[key]["instruction"]
+            elif isinstance(prompts[key], str):
+                return prompts[key]
+        if key in DEFAULT_QUICK_ACTION_PROMPTS:
+            return DEFAULT_QUICK_ACTION_PROMPTS[key]["instruction"]
+        return key
+
+    def reset_quick_action_prompts(self) -> None:
+        self.data["quick_action_prompts"] = dict(DEFAULT_QUICK_ACTION_PROMPTS)
+        self.save()
+
 
