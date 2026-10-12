@@ -405,6 +405,7 @@ class CopilotAgent:
         self.custom_endpoint: Optional[str] = None
         self.privacy_mode = False
         self.active_tag: Optional[str] = None
+        self.custom_summary_instruction: Optional[str] = None
 
         # State tracking
         self.last_analyzed_turn_id = 0
@@ -424,7 +425,8 @@ class CopilotAgent:
         model_name: str = "openai/gpt-4o-mini",
         custom_endpoint: Optional[str] = None,
         privacy_mode: bool = False,
-        active_tag: Optional[str] = None
+        active_tag: Optional[str] = None,
+        custom_summary_instruction: Optional[str] = None
     ):
         """Updates agent LLM parameters and privacy state."""
         with self.lock:
@@ -434,6 +436,7 @@ class CopilotAgent:
             self.custom_endpoint = custom_endpoint
             self.privacy_mode = privacy_mode
             self.active_tag = active_tag
+            self.custom_summary_instruction = custom_summary_instruction
             self.last_analysis_status = "offline" if provider == "offline" else "idle"
 
     def get_engine_info(self) -> Dict[str, Any]:
@@ -721,7 +724,10 @@ class CopilotAgent:
             else:
                 try:
                     prompt_context = self.memory.get_prompt_context()
-                    system_prompt = get_periodic_prompt(self.active_tag)
+                    system_prompt = get_periodic_prompt(
+                        tag_name=self.active_tag,
+                        custom_summary_instruction=self.custom_summary_instruction
+                    )
                     response_json = self._call_llm(
                         system_prompt=system_prompt,
                         user_content=prompt_context,

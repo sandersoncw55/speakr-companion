@@ -1205,6 +1205,111 @@ def test_configurable_quick_action_prompts():
     print("[OK] Configurable Quick Action Prompts passed.")
 
 
+def test_rolling_summary_prompt_and_popout():
+    print("Testing Rolling Summary Prompt Configuration and Pop-out Window...")
+    from core.config import Settings, DEFAULT_ROLLING_SUMMARY_PROMPT
+    import tempfile
+    from PySide6.QtWidgets import QApplication
+    from core.storage import RecordingsManager
+    from core.recorder import AudioRecorder
+    from core.uploader import AudioUploader
+    from gui.main_window import MainWindow
+
+    # 1. Config tests
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        settings_file = Path(tmp_dir) / "settings.json"
+        s = Settings()
+        s.settings_file = settings_file
+        s.save()
+        assert s.get_rolling_summary_instruction() == DEFAULT_ROLLING_SUMMARY_PROMPT
+
+        # Customization and save
+        custom_instr = "Focus strictly on root-cause failure analysis and deployment timeline."
+        s.rolling_summary_prompt = custom_instr
+        s.save()
+
+        # Reload
+        s2 = Settings()
+        s2.settings_file = settings_file
+        s2.load()
+        assert s2.rolling_summary_prompt == custom_instr
+        assert s2.get_rolling_summary_instruction() == custom_instr
+
+        # Prompt formatting verification
+        prompt_text = get_periodic_prompt(tag_name="Tech Review", custom_summary_instruction=custom_instr)
+        assert "USER-SPECIFIED ROLLING SUMMARY INSTRUCTION" in prompt_text
+        assert custom_instr in prompt_text
+
+        # Reset
+        s2.reset_rolling_summary_prompt()
+        assert s2.rolling_summary_prompt == DEFAULT_ROLLING_SUMMARY_PROMPT
+
+    # 2. UI and Pop-out tests
+    app = QApplication.instance() or QApplication(sys.argv)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        settings_file = Path(tmp_dir) / "settings.json"
+        s = Settings()
+        s.settings_file = settings_file
+        s.save()
+        storage = RecordingsManager(s)
+        rec = AudioRecorder()
+        upl = AudioUploader(s, storage)
+        win = MainWindow(s, rec, upl, storage)
+        try:
+            win.show()
+            # Verify UI input element exists in Prompts tab
+            assert hasattr(win, "summary_prompt_input")
+            assert DEFAULT_ROLLING_SUMMARY_PROMPT in win.summary_prompt_input.toPlainText()
+
+            # Verify editing & saving via UI
+            test_prompt = "Keep summaries under 3 sentences focusing on Kubernetes microservices."
+            win.summary_prompt_input.setPlainText(test_prompt)
+            win._save_quick_action_prompts_clicked()
+            assert win.settings.rolling_summary_prompt == test_prompt
+
+            # Verify reset via UI
+            win._reset_quick_action_prompts_clicked()
+            assert win.settings.rolling_summary_prompt == DEFAULT_ROLLING_SUMMARY_PROMPT
+            assert DEFAULT_ROLLING_SUMMARY_PROMPT in win.summary_prompt_input.toPlainText()
+
+            # Ensure HUD session initialized
+            win._ensure_copilot_session()
+            hud = win.hud
+            assert hud is not None
+            assert hasattr(hud, "popout_summary_btn")
+            assert hasattr(hud, "summary_popped_placeholder")
+            assert hud.is_summary_popped_out is False
+            assert hud.summary_popped_placeholder.isHidden()
+
+            # Trigger pop out
+            hud.popout_summary_btn.click()
+            assert hud.is_summary_popped_out is True
+            assert hud.popout_dialog is not None
+            assert not hud.summary_popped_placeholder.isHidden()
+            assert "popped out in an external window" in hud.placeholder_label.text()
+
+            # Trigger dock in via dialog dock button
+            hud.popout_dialog.dock_btn.click()
+            assert hud.is_summary_popped_out is False
+            assert hud.summary_popped_placeholder.isHidden()
+
+            # Trigger pop out again, then dock in via placeholder dock button
+            hud.popout_summary_btn.click()
+            assert hud.is_summary_popped_out is True
+            hud.placeholder_dock_btn.click()
+            assert hud.is_summary_popped_out is False
+            assert hud.summary_popped_placeholder.isHidden()
+
+        finally:
+            win.monitor.stop()
+            if win.hud:
+                win.hud.close()
+            rec.terminate()
+            win.close()
+
+    print("[OK] Rolling Summary Prompt Configuration and Pop-out Window passed.")
+
+
 if __name__ == "__main__":
     test_memory_and_scratchpad()
     test_prompts_and_tag_personas()
@@ -1227,4 +1332,6 @@ if __name__ == "__main__":
     test_noise_filtering_and_topic_cards()
     test_reasoning_engine_healthcheck_and_badge()
     test_configurable_quick_action_prompts()
+    test_rolling_summary_prompt_and_popout()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
+

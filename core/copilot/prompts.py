@@ -76,10 +76,14 @@ TAG_PERSONAS: Dict[str, str] = {
 - Challenge vague status updates: ask for concrete completion criteria, test pass rates, and blocker remediation plans."""
 }
 
-def get_periodic_prompt(tag_name: Optional[str] = None) -> str:
+def get_periodic_prompt(tag_name: Optional[str] = None, custom_summary_instruction: Optional[str] = None) -> str:
     persona = TAG_PERSONAS.get(tag_name.lower().strip() if tag_name else "", "")
-    return f"""{BASE_SYSTEM_PROMPT}
+    summary_directive = ""
+    if custom_summary_instruction and custom_summary_instruction.strip():
+        summary_directive = f"\n### USER-SPECIFIED ROLLING SUMMARY INSTRUCTION:\n{custom_summary_instruction.strip()}\n"
 
+    return f"""{BASE_SYSTEM_PROMPT}
+{summary_directive}
 {persona}
 
 INSTRUCTIONS:

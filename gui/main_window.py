@@ -1512,7 +1512,40 @@ class MainWindow(QMainWindow):
         tab_prompts_layout.setContentsMargins(10, 10, 10, 10)
         tab_prompts_layout.setSpacing(12)
 
-        prompts_header_group = QGroupBox("Quick Action Prompt Instructions")
+        # 1. Meeting Rolling Summary Prompt Group
+        summary_prompt_group = QGroupBox("Meeting Rolling Summary Prompt Instructions")
+        summary_prompt_layout = QVBoxLayout(summary_prompt_group)
+        summary_prompt_layout.setSpacing(6)
+
+        summary_prompt_desc = QLabel(
+            "Customize the system prompt instructions used to synthesize the automatic topic-based rolling meeting summary "
+            "as conversation progresses. Directs topic clustering, executive synthesis, and noise filtering."
+        )
+        summary_prompt_desc.setWordWrap(True)
+        summary_prompt_desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        summary_prompt_layout.addWidget(summary_prompt_desc)
+
+        self.summary_prompt_input = QPlainTextEdit(self.settings.get_rolling_summary_instruction())
+        self.summary_prompt_input.setFixedHeight(72)
+        self.summary_prompt_input.setStyleSheet("""
+            QPlainTextEdit {
+                background-color: #0f172a;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                color: #f8fafc;
+                font-size: 11px;
+                padding: 6px;
+                line-height: 1.4;
+            }
+            QPlainTextEdit:focus {
+                border: 1px solid #38bdf8;
+            }
+        """)
+        summary_prompt_layout.addWidget(self.summary_prompt_input)
+        tab_prompts_layout.addWidget(summary_prompt_group)
+
+        # 2. Quick Action Prompts Group
+        prompts_header_group = QGroupBox("Quick Action Prompt Instructions (One-Click Actions)")
         prompts_header_layout = QVBoxLayout(prompts_header_group)
         prompts_header_layout.setSpacing(6)
 
@@ -1566,7 +1599,7 @@ class MainWindow(QMainWindow):
         prompt_btn_row = QHBoxLayout()
         prompt_btn_row.setSpacing(10)
 
-        self.save_prompts_btn = QPushButton("💾 Save Quick Action Prompts")
+        self.save_prompts_btn = QPushButton("💾 Save All Prompts")
         self.save_prompts_btn.setStyleSheet("""
             QPushButton {
                 background-color: #0369a1; color: white; border: none;
@@ -1577,7 +1610,7 @@ class MainWindow(QMainWindow):
         self.save_prompts_btn.clicked.connect(self._save_quick_action_prompts_clicked)
         prompt_btn_row.addWidget(self.save_prompts_btn)
 
-        self.reset_prompts_btn = QPushButton("🔄 Reset Prompts to Defaults")
+        self.reset_prompts_btn = QPushButton("🔄 Reset All to Defaults")
         self.reset_prompts_btn.setStyleSheet("""
             QPushButton {
                 background-color: #334155; color: #cbd5e1; border: 1px solid #475569;
@@ -2390,7 +2423,8 @@ class MainWindow(QMainWindow):
                 api_key=api_key,
                 model_name=self.settings.llm_model,
                 custom_endpoint=endpoint,
-                privacy_mode=self.settings.privacy_mode
+                privacy_mode=self.settings.privacy_mode,
+                custom_summary_instruction=self.settings.get_rolling_summary_instruction()
             )
 
         if self.hud:
@@ -2404,33 +2438,53 @@ class MainWindow(QMainWindow):
         self._log("Copilot & ASR settings updated.")
 
     def _save_quick_action_prompts_clicked(self) -> None:
-        """Saves edited quick action prompt instructions to persistent Settings."""
-        if not hasattr(self, "prompt_inputs"):
-            return
-        updated = {}
-        for k, widget in self.prompt_inputs.items():
-            curr = self.settings.quick_action_prompts.get(k, {})
-            title = curr.get("title", k)
-            updated[k] = {
-                "title": title,
-                "instruction": widget.toPlainText().strip()
-            }
-        self.settings.quick_action_prompts = updated
+        """Saves edited quick action and rolling summary prompt instructions to persistent Settings."""
+        # 1. Save rolling summary prompt
+        if hasattr(self, "summary_prompt_input"):
+            sum_text = self.summary_prompt_input.toPlainText().strip()
+            self.settings.rolling_summary_prompt = sum_text
+
+        # 2. Save quick action prompts
+        if hasattr(self, "prompt_inputs"):
+            updated = {}
+            for k, widget in self.prompt_inputs.items():
+                curr = self.settings.quick_action_prompts.get(k, {})
+                title = curr.get("title", k)
+                updated[k] = {
+                    "title": title,
+                    "instruction": widget.toPlainText().strip()
+                }
+            self.settings.quick_action_prompts = updated
+
         self.settings.save()
+
+        # Update running copilot agent if active
+        if hasattr(self, "copilot_agent") and self.copilot_agent:
+            self.copilot_agent.custom_summary_instruction = self.settings.get_rolling_summary_instruction()
+
         self.save_prompts_btn.setText("✓ Saved!")
-        self.statusBar().showMessage("Quick Action Prompts saved successfully.", 4000)
-        self._log("Quick Action Prompts configuration updated.")
-        QTimer.singleShot(1800, lambda: self.save_prompts_btn.setText("💾 Save Quick Action Prompts"))
+        self.statusBar().showMessage("Prompts configuration saved successfully.", 4000)
+        self._log("Live Copilot rolling summary and quick action prompts updated.")
+        QTimer.singleShot(1800, lambda: self.save_prompts_btn.setText("💾 Save All Prompts"))
 
     def _reset_quick_action_prompts_clicked(self) -> None:
-        """Resets all quick action prompt instructions to built-in defaults."""
+        """Resets all prompt instructions (rolling summary and quick actions) to built-in defaults."""
         self.settings.reset_quick_action_prompts()
+        self.settings.reset_rolling_summary_prompt()
         self.settings.save()
+
+        if hasattr(self, "summary_prompt_input"):
+            self.summary_prompt_input.setPlainText(self.settings.get_rolling_summary_instruction())
+
         if hasattr(self, "prompt_inputs"):
             for k, widget in self.prompt_inputs.items():
                 widget.setPlainText(self.settings.get_quick_action_instruction(k))
-        self.statusBar().showMessage("Quick Action Prompts reset to defaults.", 4000)
-        self._log("Quick Action Prompts reset to default configurations.")
+
+        if hasattr(self, "copilot_agent") and self.copilot_agent:
+            self.copilot_agent.custom_summary_instruction = self.settings.get_rolling_summary_instruction()
+
+        self.statusBar().showMessage("All prompts reset to defaults.", 4000)
+        self._log("Live Copilot prompts reset to default configurations.")
 
     def _open_prompts_tab(self) -> None:
         """Navigates to Preferences -> Copilot Prompts sub-tab."""
@@ -2519,7 +2573,8 @@ class MainWindow(QMainWindow):
                 api_key=api_key,
                 model_name=self.settings.llm_model,
                 custom_endpoint=endpoint,
-                privacy_mode=self.settings.privacy_mode
+                privacy_mode=self.settings.privacy_mode,
+                custom_summary_instruction=self.settings.get_rolling_summary_instruction()
             )
             self.hud.update_engine_status(self.copilot_agent.get_engine_info())
 
@@ -2593,7 +2648,8 @@ class MainWindow(QMainWindow):
             model_name=self.settings.llm_model,
             custom_endpoint=endpoint,
             privacy_mode=self.settings.privacy_mode,
-            active_tag=tag_name
+            active_tag=tag_name,
+            custom_summary_instruction=self.settings.get_rolling_summary_instruction()
         )
 
         self.recorder.audio_tap_callback = self.vad_segmenter.push_audio

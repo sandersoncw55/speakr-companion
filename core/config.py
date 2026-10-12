@@ -52,6 +52,12 @@ DEFAULT_QUICK_ACTION_PROMPTS = {
     }
 }
 
+DEFAULT_ROLLING_SUMMARY_PROMPT = (
+    "Synthesize an automatic rolling meeting summary organized by substantive conversation topics and threads "
+    "as the call unfolds. Group topics with clear titles, 2-3 sentence overviews, key technical takeaways, "
+    "and key decisions reached. Strictly filter out casual banter, greetings, travel stories, jokes, or verbatim filler quotes."
+)
+
 
 class Settings:
     """Manages application settings stored in a local JSON file."""
@@ -104,6 +110,7 @@ class Settings:
         "hud_opacity": 0.92,
         "custom_quick_prompts": [],
         "quick_action_prompts": DEFAULT_QUICK_ACTION_PROMPTS,
+        "rolling_summary_prompt": DEFAULT_ROLLING_SUMMARY_PROMPT,
         "theme": "dark"
     }
 
@@ -584,6 +591,25 @@ class Settings:
 
     def reset_quick_action_prompts(self) -> None:
         self.data["quick_action_prompts"] = dict(DEFAULT_QUICK_ACTION_PROMPTS)
+        self.save()
+
+    @property
+    def rolling_summary_prompt(self) -> str:
+        val = self.data.get("rolling_summary_prompt")
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        return DEFAULT_ROLLING_SUMMARY_PROMPT
+
+    @rolling_summary_prompt.setter
+    def rolling_summary_prompt(self, val: str) -> None:
+        self.data["rolling_summary_prompt"] = str(val).strip() if val else DEFAULT_ROLLING_SUMMARY_PROMPT
+        self.save()
+
+    def get_rolling_summary_instruction(self) -> str:
+        return self.rolling_summary_prompt
+
+    def reset_rolling_summary_prompt(self) -> None:
+        self.data["rolling_summary_prompt"] = DEFAULT_ROLLING_SUMMARY_PROMPT
         self.save()
 
 

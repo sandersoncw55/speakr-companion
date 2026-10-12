@@ -4,6 +4,27 @@ All notable changes to the Speakr Windows Companion application are documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-10-12
+
+### Added
+- **Configurable Meeting Rolling Summary Prompt (`core/config.py`, `core/copilot/agent.py`, `core/copilot/prompts.py`, `gui/main_window.py`):**
+  - Added dedicated system prompt customization for the automatic rolling meeting summary in the `Preferences -> Copilot Prompts` subtab.
+  - Added user configurable guidance field (`DEFAULT_ROLLING_SUMMARY_PROMPT`, `rolling_summary_prompt`, `get_rolling_summary_instruction()`, `reset_rolling_summary_prompt()`) with immediate live update to the active copilot engine.
+  - Dynamically injects user-specified topic clustering and synthesis requirements into periodic analysis cycles.
+- **Detachable Floating Pop-Out Window for Rolling Summary & Scratchpad (`gui/hud.py`):**
+  - Added standalone floating pop-out dialog (`RollingSummaryPopoutDialog`) allowing Tier 2 (Rolling Executive Summary browser, User Notes scratchpad, and Note entry) to be detached into an independent desktop window.
+  - Added `📌 Pin on Top` (always-on-top toggle) and `⬇️ Dock In` controls directly in the floating window.
+  - Added placeholder card with one-click `⬇️ Re-dock into Copilot Dashboard` button in the dashboard when detached.
+  - Full bidirectional sync for note additions and summary rendering while popped out, with safe window lifecycle handling on close.
+
+### Fixed & Improved
+- **Clean Dock-In on Widget Close (`gui/hud.py`):**
+  - Handled dashboard container close events to automatically dock and safely clean up the floating window.
+- **Theme Propagation to Floating Window (`gui/hud.py`):**
+  - Ensured floating pop-out dialog dynamically inherits runtime theme changes (Cyber Dark & Studio Clean Light).
+
+---
+
 ## [1.4.0] - 2026-10-09
 
 ### Added

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QLineEdit, QTextEdit, QPlainTextEdit,
     QFrame, QSplitter, QCheckBox, QSlider, QApplication, QComboBox,
-    QAbstractItemView, QGroupBox, QTextBrowser, QStackedWidget
+    QAbstractItemView, QGroupBox, QTextBrowser, QStackedWidget, QDialog
 )
 from core.config import get_app_icon, Settings
 from core.copilot.memory import CopilotMemory, SuggestedQuestion, FollowUpItem
@@ -214,6 +214,129 @@ class FollowUpItemWidget(QWidget):
         layout.addLayout(btn_layout)
 
 
+class RollingSummaryPopoutDialog(QDialog):
+    """Standalone, resizable, floating pop-out window for Meeting Rolling Summary & Custom Scratchpad."""
+
+    dock_in_requested = Signal()
+
+    def __init__(self, theme: str = "dark", parent: Optional[QWidget] = None):
+        super().__init__(parent, Qt.Window)
+        self.theme = theme
+        self.setWindowTitle("📝 Meeting Rolling Summary & Scratchpad - Speakr Copilot")
+        self.setMinimumSize(600, 380)
+        self.resize(800, 480)
+        self.setWindowIcon(get_app_icon())
+
+        self.is_pinned = False
+        self._setup_ui()
+        self.set_theme(theme)
+
+    def _setup_ui(self):
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(8, 8, 8, 8)
+        root_layout.setSpacing(6)
+
+        # Top Control Header Bar
+        hdr_frame = QFrame()
+        hdr_layout = QHBoxLayout(hdr_frame)
+        hdr_layout.setContentsMargins(4, 2, 4, 2)
+        hdr_layout.setSpacing(6)
+
+        self.title_lbl = QLabel("📝 MEETING ROLLING SUMMARY & SCRATCHPAD (POPPED OUT)")
+        self.title_lbl.setStyleSheet("font-size: 11px; font-weight: bold; color: #34d399; letter-spacing: 0.5px;")
+        hdr_layout.addWidget(self.title_lbl)
+
+        hdr_layout.addStretch()
+
+        # Pin on top button
+        self.pin_btn = QPushButton("📌 Pin on Top")
+        self.pin_btn.setToolTip("Toggle Always on Top")
+        self.pin_btn.clicked.connect(self._toggle_pin)
+        hdr_layout.addWidget(self.pin_btn)
+
+        # Re-dock button
+        self.dock_btn = QPushButton("⬇️ Dock In")
+        self.dock_btn.setToolTip("Dock back into the main Copilot Dashboard tab")
+        self.dock_btn.clicked.connect(self._request_dock_in)
+        hdr_layout.addWidget(self.dock_btn)
+
+        root_layout.addWidget(hdr_frame)
+
+        # Container where middle_sub_splitter is docked
+        self.container_widget = QWidget()
+        self.container_layout = QVBoxLayout(self.container_widget)
+        self.container_layout.setContentsMargins(0, 0, 0, 0)
+        self.container_layout.setSpacing(0)
+        root_layout.addWidget(self.container_widget, 1)
+
+    def set_content_widget(self, widget: QWidget):
+        """Attaches the middle_sub_splitter widget into this popout dialog."""
+        self.container_layout.addWidget(widget)
+
+    def take_content_widget(self) -> Optional[QWidget]:
+        """Detaches and returns the content widget so it can be re-docked."""
+        if self.container_layout.count() > 0:
+            item = self.container_layout.takeAt(0)
+            return item.widget() if item else None
+        return None
+
+    def _toggle_pin(self):
+        self.is_pinned = not self.is_pinned
+        flags = self.windowFlags()
+        if self.is_pinned:
+            flags |= Qt.WindowStaysOnTopHint
+            self.pin_btn.setText("📌 Pinned")
+        else:
+            flags &= ~Qt.WindowStaysOnTopHint
+            self.pin_btn.setText("📌 Pin on Top")
+        self.setWindowFlags(flags)
+        self.show()
+
+    def _request_dock_in(self):
+        self.dock_in_requested.emit()
+        self.hide()
+
+    def closeEvent(self, event):
+        # Emits dock in signal when user clicks standard X close button
+        self.dock_in_requested.emit()
+        event.accept()
+
+    def set_theme(self, theme: str):
+        self.theme = theme
+        p = get_theme_palette(theme)
+        is_light = (theme == "light")
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {p['bg_surface']};
+                color: {p['text_primary']};
+            }}
+        """)
+        self.title_lbl.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {p['accent_emerald']}; letter-spacing: 0.5px;")
+        
+        btn_bg = p['bg_surface'] if is_light else '#1e293b'
+        btn_border = p['border_medium']
+        btn_hover = p['bg_hover'] if is_light else '#334155'
+
+        btn_style = f"""
+            QPushButton {{
+                background-color: {btn_bg};
+                border: 1px solid {btn_border};
+                border-radius: 4px;
+                color: {p['text_secondary']};
+                font-size: 11px;
+                font-weight: 500;
+                padding: 3px 8px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+                color: {p['text_primary']};
+            }}
+        """
+        self.pin_btn.setStyleSheet(btn_style)
+        self.dock_btn.setStyleSheet(btn_style)
+
+
 class CopilotDashboardWidget(QWidget):
     """Embedded, comprehensive 3-Tier Resizable Live Meeting Intelligence & Copilot widget."""
 
@@ -235,6 +358,7 @@ class CopilotDashboardWidget(QWidget):
         self.signals.agent_results_received.connect(self._on_agent_results_gui)
         self.signals.quick_action_received.connect(self._on_quick_action_gui)
 
+        self.popout_dialog: Optional[RollingSummaryPopoutDialog] = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -717,6 +841,27 @@ class CopilotDashboardWidget(QWidget):
         """)
         self.open_notes_folder_btn.clicked.connect(self._open_notes_folder)
         sum_head.addWidget(self.open_notes_folder_btn)
+
+        self.popout_summary_btn = QPushButton("⧉ Pop Out")
+        self.popout_summary_btn.setToolTip("Pop out Meeting Rolling Summary & Scratchpad into an independent floating window")
+        self.popout_summary_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                color: #38bdf8;
+                font-size: 10px;
+                font-weight: 600;
+                padding: 1px 7px;
+            }
+            QPushButton:hover {
+                background: #0369a1;
+                color: #ffffff;
+                border-color: #38bdf8;
+            }
+        """)
+        self.popout_summary_btn.clicked.connect(self._toggle_summary_popout)
+        sum_head.addWidget(self.popout_summary_btn)
         summary_layout.addLayout(sum_head)
 
         # Content horizontal split: Executive Synthesis Browser on left, Custom User Notes on right
@@ -861,7 +1006,48 @@ class CopilotDashboardWidget(QWidget):
 
         middle_sub_splitter.addWidget(user_notes_container)
         middle_sub_splitter.setSizes([550, 450])
+        self.middle_sub_splitter = middle_sub_splitter
+        self.summary_layout = summary_layout
         summary_layout.addWidget(middle_sub_splitter)
+
+        # Placeholder card shown when Tier 2 is popped out
+        self.summary_popped_placeholder = QFrame()
+        self.summary_popped_placeholder.setObjectName("placeholder_card")
+        self.summary_popped_placeholder.setStyleSheet("""
+            QFrame#placeholder_card {
+                background-color: #0f172a;
+                border: 1px dashed #334155;
+                border-radius: 6px;
+                padding: 12px;
+            }
+        """)
+        ph_layout = QVBoxLayout(self.summary_popped_placeholder)
+        ph_layout.setAlignment(Qt.AlignCenter)
+        ph_layout.setSpacing(8)
+
+        self.placeholder_label = QLabel("📝 <b>Meeting Rolling Summary & Scratchpad</b> is currently popped out in an external window.")
+        self.placeholder_label.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        ph_layout.addWidget(self.placeholder_label)
+
+        self.placeholder_dock_btn = QPushButton("⬇️ Re-dock into Copilot Dashboard")
+        self.placeholder_dock_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0284c7;
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #0369a1;
+            }
+        """)
+        self.placeholder_dock_btn.clicked.connect(self._dock_summary_in)
+        ph_layout.addWidget(self.placeholder_dock_btn)
+        self.summary_popped_placeholder.setVisible(False)
+        summary_layout.addWidget(self.summary_popped_placeholder)
 
         self.main_v_splitter.addWidget(summary_frame)
 
@@ -964,6 +1150,49 @@ class CopilotDashboardWidget(QWidget):
         clipboard.setText(md)
         self.copy_md_btn.setText("✓ Copied!")
         QTimer.singleShot(1800, lambda: self.copy_md_btn.setText("📋 Copy Markdown Notes"))
+
+    def _ensure_popout_dialog(self) -> RollingSummaryPopoutDialog:
+        if self.popout_dialog is None:
+            self.popout_dialog = RollingSummaryPopoutDialog(theme=self.theme, parent=self.window())
+            self.popout_dialog.dock_in_requested.connect(self._dock_summary_in)
+        return self.popout_dialog
+
+    @property
+    def is_summary_popped_out(self) -> bool:
+        """Returns True if the rolling summary is currently popped out."""
+        return bool(self.popout_dialog and self.popout_dialog.isVisible())
+
+    def _toggle_summary_popout(self):
+        """Toggles between docked and popped-out state for the summary & scratchpad."""
+        if self.is_summary_popped_out:
+            self._dock_summary_in()
+        else:
+            self._popout_summary_out()
+
+    def _popout_summary_out(self):
+        """Detaches Tier 2 summary and scratchpad and moves it into the floating popout window."""
+        dialog = self._ensure_popout_dialog()
+        if hasattr(self, "middle_sub_splitter") and self.middle_sub_splitter:
+            # Transfer splitter widget to dialog container
+            dialog.set_content_widget(self.middle_sub_splitter)
+            self.summary_popped_placeholder.setVisible(True)
+            self.popout_summary_btn.setText("⬇️ Dock In")
+            self.popout_summary_btn.setToolTip("Dock Meeting Rolling Summary & Scratchpad back into the dashboard")
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+
+    def _dock_summary_in(self):
+        """Restores Tier 2 summary and scratchpad back into the main dashboard."""
+        if self.popout_dialog and hasattr(self, "middle_sub_splitter") and self.middle_sub_splitter:
+            w = self.popout_dialog.take_content_widget()
+            if w:
+                # Insert back before placeholder card in summary_layout
+                self.summary_layout.insertWidget(1, w)
+            self.summary_popped_placeholder.setVisible(False)
+            self.popout_summary_btn.setText("⧉ Pop Out")
+            self.popout_summary_btn.setToolTip("Pop out Meeting Rolling Summary & Scratchpad into an independent floating window")
+            self.popout_dialog.hide()
 
     def _submit_adhoc_query(self):
         query = self.adhoc_input.text().strip()
@@ -1131,6 +1360,10 @@ class CopilotDashboardWidget(QWidget):
         self._render_questions()
         self._render_follow_ups()
         self._update_summary_browser_text()
+
+        # Update popout dialog theme if initialized
+        if self.popout_dialog:
+            self.popout_dialog.set_theme(theme)
 
     def _on_transcription_gui(self, channel: str, text: str, timestamp: float, turn_id: int):
         """Append to memory and update ticker display."""
@@ -1439,6 +1672,13 @@ class CopilotDashboardWidget(QWidget):
         if asr_idx >= 0:
             self.asr_combo.setCurrentIndex(asr_idx)
         self.asr_combo.blockSignals(False)
+
+    def closeEvent(self, event):
+        """Ensures popout dialog is docked in or closed when widget closes."""
+        if self.popout_dialog:
+            self._dock_summary_in()
+            self.popout_dialog.close()
+        event.accept()
 
 
 # Alias for backward compatibility
