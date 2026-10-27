@@ -121,6 +121,8 @@ class AudioRecorder:
 
     def _find_device_index(self, name_pattern: str, loopback: bool = False) -> int:
         """Finds PyAudio device index matching the name pattern."""
+        if getattr(self, "p", None) is None:
+            self.p = pyaudio.PyAudio()
         p = self.p
         try:
             # Find WASAPI Host API Index for loopback
@@ -575,6 +577,16 @@ class AudioRecorder:
     def terminate(self) -> None:
         """Free resources on application shutdown."""
         self.stop_recording()
+        # Ensure capture threads have finished before terminating PortAudio
+        for t in (self.mic_thread, self.loopback_thread, self.mix_thread):
+            if t is not None and t.is_alive():
+                try:
+                    t.join(timeout=1.0)
+                except Exception:
+                    pass
         if hasattr(self, 'p') and self.p is not None:
-            self.p.terminate()
+            try:
+                self.p.terminate()
+            except Exception:
+                pass
             self.p = None

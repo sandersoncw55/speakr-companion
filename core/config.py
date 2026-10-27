@@ -53,9 +53,12 @@ DEFAULT_QUICK_ACTION_PROMPTS = {
 }
 
 DEFAULT_ROLLING_SUMMARY_PROMPT = (
-    "Synthesize an automatic rolling meeting summary organized by substantive conversation topics and threads "
-    "as the call unfolds. Group topics with clear titles, 2-3 sentence overviews, key technical takeaways, "
-    "and key decisions reached. Strictly filter out casual banter, greetings, travel stories, jokes, or verbatim filler quotes."
+    "Synthesize a rolling meeting summary dynamically organized into cohesive sentences by conversation topic. "
+    "On each refresh, iteratively fuse existing topic summaries with new discussion: replace or update the narrative "
+    "if continuing the same topic, add new topic sections if the subject changes, or correct and rename any prior topic "
+    "if discussion reveals a more accurate domain. "
+    "Never create topics for greetings or conversational warmups. Output non-redundant, complete narrative sentences per topic, "
+    "and strictly exclude duplicate decisions or fragmented quotes."
 )
 
 
@@ -114,15 +117,19 @@ class Settings:
         "theme": "dark"
     }
 
-    def __init__(self):
-        # Determine settings file path
-        appdata_dir = os.getenv("LOCALAPPDATA")
-        if appdata_dir:
-            self.settings_dir = Path(appdata_dir) / "SpeakrCompanion"
+    def __init__(self, settings_file: Optional[Path] = None):
+        if settings_file is not None:
+            self.settings_file = Path(settings_file)
+            self.settings_dir = self.settings_file.parent
         else:
-            self.settings_dir = Path.home() / ".speakr_companion"
+            # Determine settings file path
+            appdata_dir = os.getenv("LOCALAPPDATA")
+            if appdata_dir:
+                self.settings_dir = Path(appdata_dir) / "SpeakrCompanion"
+            else:
+                self.settings_dir = Path.home() / ".speakr_companion"
+            self.settings_file = self.settings_dir / "settings.json"
 
-        self.settings_file = self.settings_dir / "settings.json"
         self.data: Dict[str, Any] = {}
         self.load()
 

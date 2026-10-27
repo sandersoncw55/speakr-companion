@@ -72,7 +72,8 @@ class RecordingsManager:
         tag_ids: Optional[List[int]] = None,
         status: str = "Local Only",
         server_id: Optional[str] = None,
-        notes_path: Optional[str] = None
+        notes_path: Optional[str] = None,
+        custom_title: Optional[str] = None
     ) -> Dict[str, Any]:
         """Adds a new recording record to the history."""
         abs_path = str(Path(file_path).resolve())
@@ -87,6 +88,7 @@ class RecordingsManager:
         record = {
             "file_path": abs_path,
             "filename": os.path.basename(abs_path),
+            "custom_title": custom_title.strip() if custom_title and custom_title.strip() else "",
             "created_at": now,
             "created_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
             "trigger": trigger.lower(),
@@ -103,9 +105,11 @@ class RecordingsManager:
             updated = False
             for i, item in enumerate(self._history):
                 if item.get("file_path") == abs_path or item.get("filename") == record["filename"]:
-                    # Preserve existing notes_path if not provided in update
+                    # Preserve existing notes_path or custom_title if not provided in update
                     if not record["notes_path"] and item.get("notes_path"):
                         record["notes_path"] = item["notes_path"]
+                    if not record["custom_title"] and item.get("custom_title"):
+                        record["custom_title"] = item["custom_title"]
                     self._history[i] = record
                     updated = True
                     break

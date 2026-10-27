@@ -3,7 +3,7 @@ import shutil
 import time
 import threading
 from pathlib import Path
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Any
 from core.config import Settings
 from core.client import SpeakrClient
 from core.storage import RecordingsManager
@@ -21,7 +21,12 @@ class AudioUploader:
         self.storage = storage
         self.status_callback = status_callback  # callback(message, success_flag)
 
-    def process_file(self, file_path: str, tag_ids: List[int]) -> None:
+    def process_file(
+        self, 
+        file_path: str, 
+        tag_ids: Optional[List[Any]] = None,
+        custom_title: Optional[str] = None
+    ) -> None:
         """Entry point to process a finished recording in a background thread."""
         abs_path = str(Path(file_path).resolve())
         if not os.path.exists(abs_path):
@@ -38,7 +43,26 @@ class AudioUploader:
         if self.storage:
             self.storage.update_status(file_path, "Uploading...")
 
-        thread = threading.Thread(target=self._process_background, args=(abs_path, tag_ids, file_path), daemon=True)
+        # Sanitize tag_ids to list of integers
+        clean_tag_ids: List[int] = []
+        if tag_ids:
+            for t in tag_ids:
+                try:
+                    if t is not None and str(t).strip():
+                        clean_tag_ids.append(int(t))
+                except (ValueError, TypeError):
+                    pass
+
+        # Deduplicate while preserving order
+        clean_tag_ids = list(dict.fromkeys(clean_tag_ids))
+
+        clean_custom_title = custom_title.strip() if custom_title and custom_title.strip() else None
+
+        thread = threading.Thread(
+            target=self._process_background, 
+            args=(abs_path, clean_tag_ids, file_path, clean_custom_title), 
+            daemon=True
+        )
         thread.start()
 
     def _notify(self, message: str, success: bool) -> None:
@@ -77,7 +101,13 @@ class AudioUploader:
 
         return notes_path, notes_content
 
-    def _process_background(self, abs_path: str, tag_ids: List[int], original_ref_path: str) -> None:
+    def _process_background(
+        self, 
+        abs_path: str, 
+        tag_ids: List[int], 
+        original_ref_path: str,
+        custom_title: Optional[str] = None
+    ) -> None:
         """Background thread execution."""
         try:
             mode = self.settings.upload_mode
@@ -85,7 +115,8 @@ class AudioUploader:
             client = SpeakrClient(base_url=server_conf["url"], api_key=server_conf["api_key"])
             
             filename = os.path.basename(abs_path)
-            title = os.path.splitext(filename)[0]
+            stem_title = os.path.splitext(filename)[0]
+            display_title = custom_title if custom_title else stem_title
 
             notes_path, notes_text = self._resolve_notes(abs_path, original_ref_path)
             if notes_text:
@@ -94,12 +125,12 @@ class AudioUploader:
             if mode == "api":
                 size_str = RecordingsManager.format_size(os.path.getsize(abs_path)) if os.path.exists(abs_path) else ""
                 has_notes_msg = " with live notes" if notes_text else ""
-                self._notify(f"Uploading '{filename}' ({size_str}){has_notes_msg} via Speakr API...", True)
+                self._notify(f"Uploading '{display_title}' ({size_str}){has_notes_msg} via Speakr API...", True)
                 
                 prompt_vars = {"copilot_notes": notes_text} if notes_text else None
                 rec_id = client.upload_recording(
                     abs_path, 
-                    title=title, 
+                    title=display_title, 
                     notes=notes_text, 
                     prompt_variables=prompt_vars
                 )
@@ -110,6 +141,11 @@ class AudioUploader:
                         self.storage.update_status(original_ref_path, "Uploaded", str(rec_id))
                         self.storage.update_status(abs_path, "Uploaded", str(rec_id))
 
+                    # If a custom title was provided, explicitly invoke update_recording to ensure clean title
+                    if custom_title:
+                        print(f"[Uploader] Setting clean title '{custom_title}' on Speakr for recording {rec_id}...")
+                        client.update_recording(str(rec_id), title=custom_title)
+
                     # Ensure notes are attached via PUT /notes
                     if notes_text:
                         client.replace_recording_notes(str(rec_id), notes_text)
@@ -118,11 +154,11 @@ class AudioUploader:
                         self._notify("Applying tags to recording...", True)
                         tagged = client.add_recording_tags(str(rec_id), tag_ids)
                         if tagged:
-                            self._notify(f"Successfully uploaded and tagged recording '{title}'!", True)
+                            self._notify(f"Successfully uploaded and tagged recording '{display_title}'!", True)
                         else:
-                            self._notify(f"Uploaded '{title}', but failed to apply tags.", False)
+                            self._notify(f"Uploaded '{display_title}', but failed to apply tags.", False)
                     else:
-                        self._notify(f"Successfully uploaded recording '{title}'!", True)
+                        self._notify(f"Successfully uploaded recording '{display_title}'!", True)
                 else:
                     if self.storage:
                         self.storage.update_status(original_ref_path, "Upload Failed")
@@ -158,16 +194,16 @@ class AudioUploader:
                         self.storage.update_status(abs_path, "Copied to NAS")
                     self._notify(f"Copied '{filename}' to NAS share.", True)
                     
-                    # If tags or notes need to be applied on Speakr server, start polling
-                    if (tag_ids or notes_text) and server_conf.get("api_key"):
+                    # If tags, notes, or title need to be applied on Speakr server, start polling
+                    if (tag_ids or notes_text or custom_title) and server_conf.get("api_key"):
                         polling_thread = threading.Thread(
                             target=self._poll_and_tag,
-                            args=(client, filename, tag_ids, abs_path, original_ref_path, notes_text),
+                            args=(client, filename, tag_ids, abs_path, original_ref_path, notes_text, custom_title),
                             daemon=True
                         )
                         polling_thread.start()
                     else:
-                        self._notify(f"Recording '{title}' saved to NAS.", True)
+                        self._notify(f"Recording '{display_title}' saved to NAS.", True)
                 except Exception as e:
                     if self.storage:
                         self.storage.update_status(original_ref_path, "Copy Failed")
@@ -188,11 +224,12 @@ class AudioUploader:
         file_path: str, 
         original_ref_path: str, 
         notes_text: Optional[str] = None,
+        custom_title: Optional[str] = None,
         timeout_mins: int = 10
     ) -> None:
-        """Polls the Speakr API to match the ingested folder file and apply tags / notes."""
+        """Polls the Speakr API to match the ingested folder file and apply tags / notes / title."""
         self._notify(f"Waiting for Speakr to process Syncthing file...", True)
-        title = os.path.splitext(filename)[0]
+        title = custom_title if custom_title else os.path.splitext(filename)[0]
         start_time = time.time()
         timeout_secs = timeout_mins * 60
         poll_interval = 15.0  # seconds
@@ -221,6 +258,10 @@ class AudioUploader:
                 if self.storage:
                     self.storage.update_status(original_ref_path, "Uploaded", str(match_id))
                     self.storage.update_status(file_path, "Uploaded", str(match_id))
+
+                if custom_title:
+                    client.update_recording(str(match_id), title=custom_title)
+                    print(f"[Uploader] Updated title to '{custom_title}' on Speakr for matched recording {match_id}")
 
                 if notes_text:
                     client.replace_recording_notes(str(match_id), notes_text)

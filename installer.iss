@@ -2,7 +2,7 @@
 ; Download Inno Setup from: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "Speakr Companion"
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.6.0"
 #define MyAppPublisher "Speakr"
 #define MyAppURL "https://github.com/sandersoncw55/speakr-companion"
 #define MyAppExeName "SpeakrCompanion.exe"

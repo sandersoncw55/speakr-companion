@@ -19,6 +19,10 @@ from tests.test_copilot_pipeline import (
     test_hud_clear_on_start_and_manual_reset,
     test_fetch_lm_studio_models_function,
     test_history_icon_buttons_and_model_fetch_ui,
+    test_dynamic_topic_derivation_and_no_vdi_bias,
+    test_gui_makeover_components,
+    test_meeting_title_renaming_and_tag_persistence,
+    test_dynamic_keyphrase_extraction_and_title_tag_reset,
 )
 
 class TestCopilotSuite(unittest.TestCase):
@@ -69,6 +73,18 @@ class TestCopilotSuite(unittest.TestCase):
 
     def test_16_history_icon_buttons_and_model_fetch_ui(self):
         test_history_icon_buttons_and_model_fetch_ui()
+
+    def test_17_dynamic_topic_derivation_and_no_vdi_bias(self):
+        test_dynamic_topic_derivation_and_no_vdi_bias()
+
+    def test_18_gui_makeover_components(self):
+        test_gui_makeover_components()
+
+    def test_19_meeting_title_renaming_and_tag_persistence(self):
+        test_meeting_title_renaming_and_tag_persistence()
+
+    def test_20_dynamic_keyphrase_extraction_and_title_tag_reset(self):
+        test_dynamic_keyphrase_extraction_and_title_tag_reset()
 
 if __name__ == "__main__":
     unittest.main()

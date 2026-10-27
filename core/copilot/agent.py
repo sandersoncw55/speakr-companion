@@ -5,6 +5,7 @@ import threading
 import httpx
 from typing import Optional, Callable, Dict, Any, List
 from core.copilot.memory import CopilotMemory, TranscriptTurn
+from core.copilot.corpus import DynamicDomainCorpus
 from core.copilot.prompts import (
     get_periodic_prompt,
     DEFAULT_QUICK_PROMPTS,
@@ -60,15 +61,105 @@ class OfflineExtractiveEngine:
     ]
 
     TECHNICAL_DOMAINS = [
-        ("Storage & VDI Infrastructure", ["storage", "san", "vdi", "vm", "thin", "provisioning", "controller", "datastore", "disk", "volume", "snapshot", "failover", "vmotion"]),
-        ("Database & Data Migration", ["database", "postgres", "sql", "migration", "schema", "table", "lock", "query", "index", "replica", "replication"]),
-        ("Deployment & Release Lifecycle", ["deploy", "deployment", "rollback", "canary", "release", "cutover", "upgrade", "patch", "staging"]),
-        ("API & Service Architecture", ["api", "endpoint", "service", "grpc", "gateway", "ingress", "mesh", "rest", "circuit-breaker"]),
-        ("Event Streaming & Messaging", ["kafka", "queue", "topic", "consumer", "stream", "rabbitmq", "broker", "lag", "offset"]),
-        ("Caching & State Management", ["cache", "redis", "memcached", "ttl", "invalidation", "eviction"]),
-        ("Performance & Reliability Diagnostics", ["latency", "p99", "cpu", "memory", "leak", "bottleneck", "timeout", "profiling", "telemetry"]),
-        ("Network & Infrastructure Security", ["firewall", "vlan", "subnet", "dns", "ssl", "tls", "cert", "certificate", "token", "auth"])
+        ("Storage & VDI Infrastructure", [
+            "vdi", "virtual desktop", "thin provisioning", "vmotion", "datastore",
+            "san storage", "storage cluster", "storage array", "storage volume", "snapshot rollback"
+        ]),
+        ("Database & Data Architecture", [
+            "database", "postgres", "postgresql", "mysql", "mongodb", "schema migration",
+            "table index", "replica lag", "database replication", "query execution", "sql migration"
+        ]),
+        ("Deployment & Release Lifecycle", [
+            "canary deployment", "production rollback", "cutover window", "ci/cd pipeline",
+            "staging deployment", "release build", "blue-green deployment", "zero-downtime"
+        ]),
+        ("API & Microservice Architecture", [
+            "rest api", "graphql", "microservice", "grpc", "api gateway", "ingress controller",
+            "circuit breaker", "api endpoint", "service mesh"
+        ]),
+        ("Event Streaming & Messaging", [
+            "apache kafka", "kafka broker", "rabbitmq", "message broker", "consumer lag",
+            "partition offset", "message queue", "event stream"
+        ]),
+        ("Caching & State Management", [
+            "redis cache", "memcached", "cache invalidation", "cache eviction", "ttl expiration"
+        ]),
+        ("Performance & Reliability Diagnostics", [
+            "p99 latency", "memory leak", "cpu spike", "thread exhaustion", "connection pool",
+            "profiling trace", "bottleneck analysis", "telemetry counter"
+        ]),
+        ("Network & Infrastructure Security", [
+            "firewall rule", "vlan subnet", "dns resolution", "ssl certificate", "tls handshake",
+            "zero trust", "network security", "bastion host"
+        ]),
+        ("Enterprise Endpoint & Packaging", [
+            "intune", "autopilot", "application packaging", "repackaging", "psadt", "sccm",
+            "win32 app", "zscaler", "endpoint manager", "logon logger"
+        ]),
+        ("Identity, Access & Policy Management", [
+            "rbac permissions", "azure entra", "entra id", "group policy", "gpo policy",
+            "active directory", "access control list", "token auth"
+        ]),
+        ("Product Strategy & Roadmap", [
+            "product roadmap", "sprint planning", "milestone", "user story", "backlog grooming",
+            "feature scope", "product launch", "mvp release", "release train"
+        ]),
+        ("UI/UX & Frontend Development", [
+            "user interface", "frontend architecture", "design system", "wireframe", "figma mockup",
+            "responsive design", "component library", "user experience"
+        ]),
+        ("Finance, Budget & Procurement", [
+            "budget allocation", "vendor contract", "procurement", "licensing agreement",
+            "pricing tier", "cost estimation", "capex opex", "contract renewal"
+        ]),
+        ("Operations & Incident Response", [
+            "incident postmortem", "root cause analysis", "outage remediation", "pagerduty alert",
+            "runbook execution", "sev1 incident", "service degradation"
+        ]),
+        ("Team Sync & People Operations", [
+            "headcount planning", "hiring pipeline", "candidate interview", "performance review",
+            "1-on-1 sync", "team retrospective", "onboarding workflow"
+        ])
     ]
+
+    COMMON_STOP_ACRONYMS = {
+        "THE", "AND", "FOR", "YOU", "ARE", "NOT", "CAN", "BUT", "ALL", 
+        "NEW", "NOW", "SEE", "YES", "GET", "LET", "PUT", "OUT", "ONE", 
+        "TWO", "HOW", "WHO", "WHY", "OUR", "ANY", "HAS", "HAD", "HAVE"
+    }
+
+    @classmethod
+    def extract_dynamic_entities(cls, text: str) -> List[str]:
+        """Dynamically extracts technical acronyms, PascalCase systems, and key technical phrases."""
+        entities = []
+        # 1. Technical acronyms (2-6 chars): e.g. RBAC, GPO, MSI, PSADT, SCCM, Intune, API, SAN, VDI, W365
+        acronyms = re.findall(r'\b[A-Z0-9]{2,6}\b', text)
+        for ac in acronyms:
+            if ac not in cls.COMMON_STOP_ACRONYMS and not ac.isdigit():
+                if ac not in entities:
+                    entities.append(ac)
+        
+        # 2. PascalCase / CamelCase identifiers: e.g. AutoPilot, PowerShell, LogonLogger, PostgreSQL, ServiceBus
+        pascal_cases = re.findall(r'\b[A-Z][a-z]+(?:[A-Z0-9][a-z0-9]*)+\b', text)
+        for pc in pascal_cases:
+            if pc not in entities:
+                entities.append(pc)
+
+        # 3. Capitalized multi-word noun clusters: e.g. "Group Policy", "Home Office", "Microsoft Graph", "Branch Office"
+        multi_words = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b', text)
+        for mw in multi_words:
+            if mw not in entities and not any(mw.lower().startswith(s) for s in ["good morning", "thank you", "look at", "have a", "sometimes you"]):
+                entities.append(mw)
+
+        # 4. Technical and organizational collocations (multi-word phrases)
+        colloc_pattern = r'\b(?:registry|policy|package|packaging|endpoint|cluster|deployment|pipeline|permission|token|driver|migration|database|infrastructure|network|firewall|server|service|container|volume|workflow|build|script|architecture|dependency|latency|failover|firmware|schema|table|queue|broker|cache|gateway|ingress|autopilot|intune|zscaler|rbac|gpo|win32|psadt|sprint|roadmap|milestone|feature|budget|licensing|contract|vendor|design|incident|outage|postmortem|onboarding|performance)\b\s+[a-zA-Z0-9_\-]+'
+        collocs = re.findall(colloc_pattern, text, re.IGNORECASE)
+        for c in collocs:
+            c_clean = c.strip().title()
+            if len(c_clean) > 4 and c_clean not in entities:
+                entities.append(c_clean)
+
+        return entities
 
     @classmethod
     def _is_casual_noise(cls, text: str) -> bool:
@@ -103,7 +194,7 @@ class OfflineExtractiveEngine:
             return False
         return has_action_verb
 
-    def generate_periodic(self, turns: List[TranscriptTurn], live_notes: List[str]) -> Dict[str, Any]:
+    def generate_periodic(self, turns: List[TranscriptTurn], live_notes: List[str], custom_summary_instruction: Optional[str] = None) -> Dict[str, Any]:
         """Synthesizes structured topic summary cards, technical questions, and deliverables from turns."""
         if not turns:
             return {
@@ -169,73 +260,42 @@ class OfflineExtractiveEngine:
                 if len(s_clean) > 18 and not s_clean.endswith("?"):
                     substantive_statements.append((speaker, _clean_stmt(s_clean)))
 
-        # Formulate suggested questions (Deep Technical Probing)
+        # Collect statements with dynamic entities
+        stmt_entities = []
+        all_detected_entities = []
+        for speaker, stmt in substantive_statements:
+            ents = self.extract_dynamic_entities(stmt)
+            stmt_entities.append((speaker, stmt, ents))
+            for e in ents:
+                if e not in all_detected_entities:
+                    all_detected_entities.append(e)
+
+        # Formulate suggested questions dynamically from extracted technical entities and deliverables
         suggested_questions = []
-        combined_text = " ".join([t.text.lower() for t in recent_turns])
 
-        # Technical domain probing patterns
-        tech_domains = [
-            (
-                ["migration", "database", "postgres", "mysql", "sql", "table", "schema", "query", "index"],
-                "Regarding the database schema/migration changes, will this acquire an exclusive table lock or cause replication lag during peak hours?",
-                "Evaluate database lock contention and replica consistency"
-            ),
-            (
-                ["san", "firmware", "controller", "storage", "cluster", "failover", "heartbeat", "node", "thin", "vdi"],
-                "During the SAN controller failover or maintenance, how are snapshot consistency and heartbeat quorum validated?",
-                "Verify high availability and data durability guarantees"
-            ),
-            (
-                ["api", "endpoint", "grpc", "gateway", "service", "rest", "envoy", "ingress"],
-                "For the service/API endpoint integration, what are the upstream timeout SLAs, retry backoff limits, and circuit-breaker thresholds?",
-                "Mitigate cascading timeouts and service mesh degradation"
-            ),
-            (
-                ["kafka", "queue", "topic", "consumer", "stream", "rabbitmq", "broker"],
-                "How are uncommitted offsets, backpressure, and partition rebalancing handled under peak consumer lag?",
-                "Prevent duplicate message processing and offset drift"
-            ),
-            (
-                ["redis", "cache", "memcached", "invalidation", "ttl"],
-                "What is the TTL and eviction strategy for the cache to prevent thundering-herd cache stampedes upon expiry?",
-                "Mitigate cache stampede and backend saturation"
-            ),
-            (
-                ["deploy", "deployment", "rollback", "canary", "release", "cutover"],
-                "What automated canary health-check signals and metric thresholds trigger an instant rollback during rollout?",
-                "Ensure automated regression containment and rollback SLA"
-            ),
-            (
-                ["latency", "p99", "cpu", "memory", "leak", "timeout", "bottleneck"],
-                "What baseline profiling telemetry or flamegraph metrics are being captured to isolate the root cause of the performance bottleneck?",
-                "Lock down root-cause diagnostics and baseline metrics"
-            )
-        ]
-
-        # 1. Match technical domains from dialogue
-        for keywords, question_tmpl, rationale in tech_domains:
-            if any(kw in combined_text for kw in keywords):
-                if len(suggested_questions) < 3 and not any(q["question"] == question_tmpl for q in suggested_questions):
-                    suggested_questions.append({
-                        "question": question_tmpl,
-                        "rationale": rationale
-                    })
-
-        # 2. Follow up on any unanswered technical question from dialogue
-        for eq in extracted_questions[:2]:
+        # 1. Probe top extracted technical entities from recent dialogue
+        for ent in all_detected_entities[:3]:
             if len(suggested_questions) < 3:
                 suggested_questions.append({
-                    "question": f"Follow up: {_clean_stmt(eq)}",
-                    "rationale": "Clarify technical inquiry raised in recent dialogue"
+                    "question": f"Regarding {ent}, what are the specific edge cases, dependency constraints, or validation criteria?",
+                    "rationale": f"Verify architectural boundaries and failure modes for {ent}"
                 })
 
-        # 3. Contextual probing on commitments / deliverables
+        # 2. Contextual probing on commitments / deliverables
         if follow_up_items and len(suggested_questions) < 3:
             first_act = follow_up_items[0]["task"]
             suggested_questions.append({
                 "question": f"Regarding '{first_act[:50]}...', what is the validation criteria and rollback cutover threshold?",
                 "rationale": "Lock down technical acceptance criteria and safety margin"
             })
+
+        # 3. Follow up on any unanswered technical question from dialogue
+        for eq in extracted_questions[:2]:
+            if len(suggested_questions) < 3:
+                suggested_questions.append({
+                    "question": f"Follow up: {_clean_stmt(eq)}",
+                    "rationale": "Clarify technical inquiry raised in recent dialogue"
+                })
 
         # 4. Fallback technical probing question if needed
         if len(suggested_questions) < 3:
@@ -244,39 +304,71 @@ class OfflineExtractiveEngine:
                 "rationale": "Ensure regression recovery plan is verified"
             })
 
-        # Group substantive statements into structured Topic Cards
-        topics_dict: Dict[str, Dict[str, Any]] = {}
-        for speaker, stmt in substantive_statements:
-            s_low = stmt.lower()
-            matched_domain = None
-            for domain_title, domain_kws in self.TECHNICAL_DOMAINS:
-                if any(dkw in s_low for dkw in domain_kws):
-                    matched_domain = domain_title
-                    break
-            
-            if not matched_domain:
-                matched_domain = "Technical Architecture & Systems Review"
+        # Dynamically cluster substantive statements by shared entity overlap (No Hardcoded Domain Buckets!)
+        clustered_topics: List[Dict[str, Any]] = []
+        used_indices = set()
 
-            if matched_domain not in topics_dict:
-                topics_dict[matched_domain] = {
-                    "title": matched_domain,
-                    "statements": [stmt],
-                    "status": "in_progress"
-                }
+        for i, (spk_i, stmt_i, ents_i) in enumerate(stmt_entities):
+            if i in used_indices:
+                continue
+            used_indices.add(i)
+            cluster_stmts = [stmt_i]
+            cluster_ents = set(ents_i)
+
+            for j, (spk_j, stmt_j, ents_j) in enumerate(stmt_entities):
+                if j in used_indices:
+                    continue
+                shared = cluster_ents.intersection(set(ents_j))
+                if shared or (not cluster_ents and not ents_j):
+                    used_indices.add(j)
+                    cluster_stmts.append(stmt_j)
+                    cluster_ents.update(ents_j)
+
+            # Derive topic title dynamically
+            title = None
+            combined_cluster_text = " ".join([s.lower() for s in cluster_stmts])
+
+            # 1. Primary: Dynamic entities extracted directly from dialogue
+            if cluster_ents:
+                # Prioritize multi-word phrases and high-signal terms
+                top_ents = sorted(list(cluster_ents), key=lambda e: (len(e.split()) > 1, len(e)), reverse=True)[:2]
+                title = " & ".join(top_ents)
+
+            # 2. Secondary fallback: Check structured domain taxonomy with whole-word regex
+            if not title:
+                for dom_name, dom_kws in self.TECHNICAL_DOMAINS:
+                    if any(re.search(rf"\b{re.escape(k)}\b", combined_cluster_text, re.IGNORECASE) for k in dom_kws):
+                        title = dom_name
+                        break
+
+            # 3. Tertiary fallback: Clean subject from first statement
+            if not title:
+                first_s = cluster_stmts[0].rstrip(".")
+                first_clean = re.sub(r'^(?:we|they|the team|i|you)\s+(?:discussed|reviewed|evaluated|tested|confirmed|noted|agreed that|looked at)\s+', '', first_s, flags=re.IGNORECASE)
+                first_clean = first_clean[0].upper() + first_clean[1:] if first_clean else first_s
+                title = first_clean[:55] + ("..." if len(first_clean) > 55 else "")
+
+            # Synthesize cohesive narrative sentences
+            title_display = title if any(c.isupper() for c in title) else title.title()
+            if len(cluster_stmts) == 1:
+                stmt_clean = cluster_stmts[0].rstrip(".")
+                if stmt_clean.lower().startswith("we ") or stmt_clean.lower().startswith("the team "):
+                    summary_text = f"{stmt_clean} in relation to {title_display}."
+                else:
+                    summary_text = f"The team reviewed {title_display}, noting that {stmt_clean.lower() if not stmt_clean.startswith('I ') else stmt_clean}."
             else:
-                topics_dict[matched_domain]["statements"].append(stmt)
+                s1 = cluster_stmts[0].rstrip(".")
+                s2 = cluster_stmts[1].rstrip(".")
+                summary_text = f"Discussion focused on {title_display}: {s1}. Furthermore, {s2}."
 
-        structured_topics = []
-        for dom_title, dom_data in list(topics_dict.items())[:4]:
-            stmts = dom_data["statements"]
-            summary_text = " ".join(stmts[:2])
-            key_points = stmts[:3]
-            structured_topics.append({
-                "title": dom_title,
+            clustered_topics.append({
+                "title": title,
                 "summary": summary_text,
                 "status": "in_progress",
-                "key_points": key_points
+                "key_points": cluster_stmts[:3]
             })
+
+        structured_topics = clustered_topics[:4]
 
         # Synthesize rolling summary bullet points (Objective Technical Takeaways, NEVER raw conversational quotes)
         summary_bullets = []
@@ -683,17 +775,29 @@ class CopilotAgent:
         self.is_running = False
 
     def _periodic_loop(self):
-        """Timer loop firing background analysis on cadence."""
+        """Timer loop firing background analysis on cadence with fast-start warmup."""
         last_check_time = time.time()
         while self.is_running:
             time.sleep(1.0)
             now = time.time()
-            if now - last_check_time >= self.cadence_seconds:
+            # Fast-start warmup cadence: check every 10-12s when no topics exist yet
+            has_topics = bool(self.memory.rolling_summary.get("topics"))
+            effective_cadence = self.cadence_seconds
+            if not has_topics and len(self.memory.turns) >= 3:
+                effective_cadence = min(12.0, max(8.0, self.cadence_seconds / 3.0))
+
+            if now - last_check_time >= effective_cadence:
                 last_check_time = now
                 latest_turns = self.memory.turns
                 if latest_turns and latest_turns[-1].turn_id > self.last_analyzed_turn_id:
                     self.last_analyzed_turn_id = latest_turns[-1].turn_id
                     threading.Thread(target=self._run_periodic_analysis, daemon=True).start()
+
+    def trigger_immediate_periodic_analysis(self) -> None:
+        """Manually triggers rolling summary synthesis immediately in a background thread."""
+        if not self.is_analyzing and self.memory.turns:
+            self.last_analyzed_turn_id = self.memory.turns[-1].turn_id
+            threading.Thread(target=self._run_periodic_analysis, daemon=True).start()
 
     def _is_offline_mode(self) -> bool:
         """Determines if offline fallback should be used."""
@@ -715,7 +819,7 @@ class CopilotAgent:
         try:
             if self._is_offline_mode():
                 response_json = self.offline_engine.generate_periodic(
-                    self.memory.turns, self.memory.user_notes
+                    self.memory.turns, self.memory.user_notes, self.custom_summary_instruction
                 )
                 self.last_analysis_status = "offline"
                 self.last_latency_ms = round((time.time() - start_t) * 1000, 1)
@@ -744,7 +848,7 @@ class CopilotAgent:
                     self.last_analysis_time = time.time()
                     self.last_error_message = str(ex)
                     response_json = self.offline_engine.generate_periodic(
-                        self.memory.turns, self.memory.user_notes
+                        self.memory.turns, self.memory.user_notes, self.custom_summary_instruction
                     )
             
             if response_json and isinstance(response_json, dict):
@@ -840,7 +944,7 @@ class CopilotAgent:
     def _call_llm(self, system_prompt: str, user_content: str, require_json: bool = True) -> Optional[Dict[str, Any]]:
         """Invokes configured LLM and parses JSON output."""
         if self._is_offline_mode():
-            return self.offline_engine.generate_periodic(self.memory.turns, self.memory.user_notes)
+            return self.offline_engine.generate_periodic(self.memory.turns, self.memory.user_notes, self.custom_summary_instruction)
 
         raw_text = self._call_llm_text(system_prompt, user_content, json_mode=require_json)
         if not raw_text:
@@ -857,8 +961,15 @@ class CopilotAgent:
 
         try:
             return json.loads(clean_text)
-        except json.JSONDecodeError as e:
-            print(f"[CopilotAgent] JSON parse error: {e}. Raw text:\n{raw_text}")
+        except json.JSONDecodeError:
+            # Fallback: extract first matching JSON object {...}
+            match = re.search(r'\{.*\}', clean_text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except Exception:
+                    pass
+            print(f"[CopilotAgent] JSON parse error. Raw text:\n{raw_text}")
             return None
 
     def _call_llm_text(self, system_prompt: str, user_content: str, json_mode: bool = False) -> str:
@@ -898,6 +1009,15 @@ class CopilotAgent:
                 if resp.status_code == 200:
                     data = resp.json()
                     return data["choices"][0]["message"]["content"]
+                
+                # If LM Studio rejected response_format json_object (e.g. requires json_schema or text), retry without response_format
+                if json_mode and resp.status_code == 400 and "response_format" in resp.text:
+                    payload.pop("response_format", None)
+                    retry_resp = client.post(endpoint, headers=headers, json=payload)
+                    if retry_resp.status_code == 200:
+                        data = retry_resp.json()
+                        return data["choices"][0]["message"]["content"]
+
                 raise RuntimeError(f"LM Studio returned HTTP {resp.status_code}: {resp.text}")
 
         elif self.llm_provider == "ollama" or (self.privacy_mode and self.llm_provider not in ("openrouter", "gemini")):

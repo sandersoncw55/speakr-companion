@@ -4,6 +4,51 @@ All notable changes to the Speakr Windows Companion application are documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-27
+
+### Added
+- **Modern Vertical Sidebar Navigation (`gui/sidebar.py`, `gui/main_window.py`, `resources/icons/`):**
+  - Integrated vertical sidebar navigation (`VerticalSidebar`) mirroring modern companion app design.
+  - Added primary navigation tabs: `Meetings` (Speakr Cloud Meetings browser), `On this PC` (Local Recording History), and `Record` (Active Live Workstation).
+  - Bottom utility actions: `Settings` (Preferences dialog) and `Speakr` (direct browser launcher to Speakr web portal).
+  - High-res vector SVG icons for navigation tabs (`meetings.svg`, `history.svg`, `record.svg`, `settings.svg`, `portal.svg`).
+  - Active indicator pill and notification badge support with dynamic dark/light theme switching.
+- **Server Cloud Meetings Browser (`gui/meetings_view.py`, `core/client.py`, `gui/main_window.py`):**
+  - Added dedicated full-window browser (`ServerMeetingsView`) to browse, search, and inspect past meetings stored on the remote Speakr server.
+  - Asynchronous background fetching with search filtering across titles, dates, durations, and participant metadata.
+  - Split-pane layout displaying detailed recording summary, attached notes, and full speaker transcription.
+  - Direct deep link button (`🌐 Open in Speakr Web`) to open the recording on the Speakr server web portal.
+- **2-Column Live Record & Copilot Workstation (`gui/record_view.py`):**
+  - Modularized live recording view with responsive dual-column layout:
+    - **Left Column**: Live Markdown Notes editor with rich formatting toolbar and real-time synchronization into Copilot AI context.
+    - **Right Column (Tabbed Section)**: Chat (dynamic topic narrative rolling summaries with one-click refresh and pop-out window), Live Q&A (probing questions and action items), Summary (on-demand catch-up, ownership, and risk analyses), and Transcript (dual-channel speaker dialogue stream).
+  - Sub-header controls for meeting title customization, tag assignment, audio source mode, ASR engine selector, reasoning engine health indicator, and manual session reset.
+- **Dynamic Domain Lexicon & Historical Corpus Mining (`core/copilot/corpus.py`, `gui/main_window.py`, `core/copilot/agent.py`):**
+  - Added `DynamicDomainCorpus` singleton that asynchronously scans local markdown meeting notes and server tags to extract domain terminology, technical phrases, and acronyms without artificial hardcoded biases.
+  - Offline Extractive Engine upgraded with `extract_dynamic_entities()` to dynamically discover and rank technical keyphrases (e.g., PSADT, MSI, W365, Intune, GPO, RBAC).
+- **Iterative Context Fusion & Semantic Deduplication (`core/copilot/memory.py`, `core/copilot/prompts.py`):**
+  - Upgraded prompt instructions and Copilot memory to perform iterative context fusion: continuously enrich topic narrative paragraphs as discussions unfold rather than generating fragmented snippets.
+  - Implemented semantic similarity checking (`_is_semantically_similar`) using token Jaccard overlap to filter duplicate decisions and questions across cycles.
+  - Implemented trivial topic filter (`_is_trivial_topic`) to automatically discard greetings, filler remarks, and conversational warmups.
+  - Expanded transcript context history window to 900 seconds (with 25-turn minimum fallback).
+- **Meeting Title Customization & Tag Persistence on Upload (`core/client.py`, `core/uploader.py`, `core/storage.py`, `gui/record_view.py`):**
+  - Added `SpeakrClient.update_recording(recording_id, title)` with PATCH and PUT fallback.
+  - Custom meeting titles set in RecordView persist into local storage and are cleanly synchronized to Speakr during direct API upload and NAS/Syncthing polling workflows.
+  - Strict integer sanitization for tag IDs passed during upload.
+- **Nested Auto-Upload Toggle in Preferences (`gui/main_window.py`):**
+  - Nested the Auto-Upload checkbox under the Direct API Upload radio group with synchronized state across settings and monitoring toggles.
+
+### Fixed & Improved
+- **PyAudio & PortAudio Shutdown Stability (`core/recorder.py`):**
+  - Added join timeout to capture threads prior to PortAudio termination to prevent application hangs during exit.
+  - Added null safety check to `_find_device_index()`.
+- **Standalone Distribution Asset Bundling (`SpeakrCompanion.spec`):**
+  - Bundled `resources/` vector assets directly into PyInstaller datas configuration.
+- **Comprehensive Pipeline & UI Test Suite (`test_copilot.py`, `tests/test_copilot_pipeline.py`):**
+  - Added unit and integration tests covering the GUI components, sidebar navigation, dynamic corpus mining, title updating, tag persistence, and test settings isolation.
+
+---
+
 ## [1.5.0] - 2026-10-12
 
 ### Added

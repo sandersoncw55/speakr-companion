@@ -26,7 +26,7 @@ class SpeakrClient:
         """Fetch all tags from Speakr."""
         url = f"{self.base_url}/tags"
         try:
-            with httpx.Client(timeout=10.0) as client:
+            with httpx.Client(timeout=3.0) as client:
                 resp = client.get(url, headers=self._get_headers())
                 resp.raise_for_status()
                 data = resp.json()
@@ -119,19 +119,63 @@ class SpeakrClient:
             print(f"[SpeakrClient] Error assigning tags to recording {recording_id}: {e}")
             return False
 
-    def list_recordings(self) -> List[Dict[str, Any]]:
-        """List recordings to match files in Syncthing mode."""
+    def list_recordings(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """List recordings from Speakr instance."""
         url = f"{self.base_url}/recordings"
+        params = {"limit": limit, "offset": offset}
         try:
             with httpx.Client(timeout=10.0) as client:
-                resp = client.get(url, headers=self._get_headers())
+                resp = client.get(url, params=params, headers=self._get_headers())
                 resp.raise_for_status()
                 data = resp.json()
                 if isinstance(data, dict):
-                    return data.get("recordings", [])
+                    return data.get("recordings", data.get("items", []))
                 elif isinstance(data, list):
                     return data
                 return []
         except Exception as e:
             print(f"[SpeakrClient] Error listing recordings: {e}")
             return []
+
+    def get_recording(self, recording_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch detailed recording metadata, transcript, and summary from Speakr instance."""
+        url = f"{self.base_url}/recordings/{recording_id}"
+        params = {"include": "transcription,summary,notes", "format": "full"}
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.get(url, params=params, headers=self._get_headers())
+                resp.raise_for_status()
+                data = resp.json()
+                if isinstance(data, dict):
+                    return data.get("recording", data)
+                return None
+        except Exception as e:
+            print(f"[SpeakrClient] Error fetching recording {recording_id}: {e}")
+            return None
+
+    def update_recording(self, recording_id: str, title: Optional[str] = None) -> bool:
+        """Update recording metadata such as title on the Speakr server."""
+        url = f"{self.base_url}/recordings/{recording_id}"
+        payload = {}
+        if title is not None:
+            payload["title"] = title
+
+        if not payload:
+            return True
+
+        # Try PATCH first, fall back to PUT if server requires PUT
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.patch(url, json=payload, headers=self._get_headers())
+                if resp.status_code in (200, 204):
+                    return True
+                if resp.status_code == 405:
+                    # Method not allowed for PATCH, try PUT
+                    resp_put = client.put(url, json=payload, headers=self._get_headers())
+                    return resp_put.status_code in (200, 204)
+                print(f"[SpeakrClient] Error updating recording {recording_id}: HTTP {resp.status_code} {resp.text}")
+                return False
+        except Exception as e:
+            print(f"[SpeakrClient] Error updating recording {recording_id}: {e}")
+            return False
+

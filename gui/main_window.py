@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QTextBrowser, QFrame, QScrollArea
 )
-from PySide6.QtGui import QIcon, QFont, QColor, QDesktopServices
+from PySide6.QtGui import QIcon, QFont, QColor, QDesktopServices, QPixmap
 
 from core.config import Settings, get_app_icon, get_resource_path
 from core.recorder import AudioRecorder
@@ -25,8 +25,12 @@ from gui.theme import get_theme_stylesheet, get_theme_palette
 from core.copilot.segmenter import VADSegmenter, AudioSegment
 from core.copilot.memory import CopilotMemory
 from core.copilot.agent import CopilotAgent, fetch_lm_studio_models
+from core.copilot.corpus import DynamicDomainCorpus
 from core.asr.manager import ASRManager
 from gui.hud import FloatingCopilotHUD, CopilotDashboardWidget
+from gui.sidebar import VerticalSidebar
+from gui.meetings_view import ServerMeetingsView
+from gui.record_view import RecordView
 
 class Signaler(QObject):
     """Bridge object to emit thread-safe signals for GUI updates."""
@@ -36,6 +40,7 @@ class Signaler(QObject):
     auto_record_finish_signal = Signal(str, list)
     cooldown_signal = Signal(float)
     history_updated_signal = Signal()
+    tags_loaded_signal = Signal(list)
 
 class ServerDialog(QDialog):
     """Dialog to add or edit Speakr server details."""
@@ -289,6 +294,7 @@ class MainWindow(QMainWindow):
         self.signaler.auto_record_finish_signal.connect(self._handle_auto_record_finished)
         self.signaler.cooldown_signal.connect(self._handle_cooldown_started)
         self.signaler.history_updated_signal.connect(self._refresh_history_table)
+        self.signaler.tags_loaded_signal.connect(self._populate_tags_ui)
         
         # Timers
         self.duration_timer = QTimer(self)
@@ -326,39 +332,95 @@ class MainWindow(QMainWindow):
         self.monitor.start()
         self.statusBar().showMessage("Ready")
 
+    @property
+    def client(self) -> SpeakrClient:
+        server_conf = self.settings.active_server
+        return SpeakrClient(base_url=server_conf["url"], api_key=server_conf["api_key"])
+
     def _init_ui(self) -> None:
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
         
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setContentsMargins(6, 6, 6, 6)
         main_layout.setSpacing(6)
 
         # Static Top Horizontal Control Bar
         self._setup_static_control_bar(main_layout)
+
+        # Horizontal Body Container: Left Vertical Sidebar + Right Tabbed Pages
+        body_layout = QHBoxLayout()
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(4)
+
+        self.sidebar = VerticalSidebar(theme=self.settings.theme, parent=self)
+        self.sidebar.page_selected.connect(self._on_sidebar_nav)
+        self.sidebar.settings_requested.connect(lambda: self._on_sidebar_nav("settings"))
+        self.sidebar.open_portal_requested.connect(self._open_speakr_web_instance)
+        body_layout.addWidget(self.sidebar)
         
         self.tabs = QTabWidget(self)
-        main_layout.addWidget(self.tabs)
+        self.tabs.tabBar().setVisible(False)
+        body_layout.addWidget(self.tabs, 1)
+
+        main_layout.addLayout(body_layout, 1)
         
         # Create tabs
-        self.dashboard_tab = QWidget()
+        self.meetings_tab = QWidget()
         self.history_tab = QWidget()
+        self.dashboard_tab = QWidget()
         self.preferences_tab = QWidget()
         self.logs_tab = QWidget()
         
-        self.tabs.addTab(self.dashboard_tab, "Dashboard")
+        self.tabs.addTab(self.meetings_tab, "Meetings")
         self.tabs.addTab(self.history_tab, "Recordings History")
+        self.tabs.addTab(self.dashboard_tab, "Dashboard")
         self.tabs.addTab(self.preferences_tab, "Preferences")
         self.tabs.addTab(self.logs_tab, "Status Logs")
         
         # Setup layouts
-        self._setup_dashboard_tab()
+        self._setup_meetings_tab()
         self._setup_history_tab()
+        self._setup_dashboard_tab()
         self._setup_preferences_tab()
         self._setup_logs_tab()
 
+        # Set initial page to Record
+        self.sidebar.set_current_page("record")
+        self.tabs.setCurrentWidget(self.dashboard_tab)
+
+        # Scan past meeting notes for domain terminology lexicon
+        DynamicDomainCorpus.get_instance().scan_historical_notes(self.settings.resolved_recordings_dir)
+
         # Update controls visibility to initial idle state
         self._update_recording_controls_visibility()
+
+    def _setup_meetings_tab(self) -> None:
+        """Sets up the Speakr server cloud meetings browser tab."""
+        layout = QVBoxLayout(self.meetings_tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.meetings_view = ServerMeetingsView(settings=self.settings, client=self.client, theme=self.settings.theme, parent=self)
+        layout.addWidget(self.meetings_view)
+
+    def _on_sidebar_nav(self, page_id: str) -> None:
+        """Handles sidebar navigation clicks."""
+        if page_id == "meetings":
+            self.tabs.setCurrentWidget(self.meetings_tab)
+            self.sidebar.set_current_page("meetings")
+            if hasattr(self, "meetings_view") and self.meetings_view:
+                self.meetings_view.refresh_meetings()
+        elif page_id == "history":
+            self.tabs.setCurrentWidget(self.history_tab)
+            self.sidebar.set_current_page("history")
+            self._refresh_history_table()
+        elif page_id == "record":
+            self.tabs.setCurrentWidget(self.dashboard_tab)
+            self.sidebar.set_current_page("record")
+            if hasattr(self, "hud") and self.hud and hasattr(self.hud, "sync_settings_state"):
+                self.hud.sync_settings_state(self.settings)
+        elif page_id == "settings":
+            self.tabs.setCurrentWidget(self.preferences_tab)
 
     def _setup_static_control_bar(self, parent_layout: QVBoxLayout) -> None:
         """Creates the persistent, single-row static control bar pinned at the top."""
@@ -376,10 +438,59 @@ class MainWindow(QMainWindow):
         bar_layout.setContentsMargins(8, 4, 8, 4)
         bar_layout.setSpacing(10)
 
+        # App Brand Title & Icon
+        brand_box = QHBoxLayout()
+        brand_box.setContentsMargins(0, 0, 0, 0)
+        brand_box.setSpacing(6)
+
+        self.brand_icon_lbl = QLabel()
+        app_icon_file = get_resource_path("app_icon.png")
+        if os.path.exists(app_icon_file):
+            pix = QPixmap(app_icon_file).scaled(22, 22, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.brand_icon_lbl.setPixmap(pix)
+            self.brand_icon_lbl.setFixedSize(22, 22)
+        else:
+            self.brand_icon_lbl.setText("🌊")
+            self.brand_icon_lbl.setStyleSheet("font-size: 16px;")
+        brand_box.addWidget(self.brand_icon_lbl)
+
+        self.brand_title_lbl = QLabel("Speakr Companion")
+        self.brand_title_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #38bdf8;")
+        brand_box.addWidget(self.brand_title_lbl)
+        bar_layout.addLayout(brand_box)
+
+        # Server status pill
+        active_srv = self.settings.active_server.get("name", "Speakr Server")
+        self.server_pill = QLabel(f"● {active_srv}")
+        self.server_pill.setStyleSheet("""
+            QLabel {
+                background-color: #0f172a;
+                color: #94a3b8;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+        """)
+        self.server_pill.setToolTip(f"Connected to {self.settings.active_server.get('url', '')}")
+        bar_layout.addWidget(self.server_pill)
+
         # Status label
         self.status_label = QLabel("STATUS: IDLE")
         self.status_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #2ecc71;")
         bar_layout.addWidget(self.status_label)
+
+        # Volume Level Meters
+        self.mic_meter = VolumeMeter("Mic", channel_type="mic", theme=self.settings.theme, parent=self)
+        self.mic_meter.setFixedHeight(24)
+        self.mic_meter.setFixedWidth(130)
+        bar_layout.addWidget(self.mic_meter)
+
+        self.spk_meter = VolumeMeter("Speakers", channel_type="system", theme=self.settings.theme, parent=self)
+        self.spk_meter.setFixedHeight(24)
+        self.spk_meter.setFixedWidth(130)
+        bar_layout.addWidget(self.spk_meter)
 
         bar_layout.addStretch()
 
@@ -665,21 +776,18 @@ class MainWindow(QMainWindow):
         self.auto_record_chk.toggled.connect(self._auto_record_toggled)
         switches_layout.addWidget(self.auto_record_chk)
         
-        self.auto_upload_chk = QCheckBox("Auto-Upload Completed")
-        self.auto_upload_chk.setChecked(self.settings.auto_upload_enabled)
-        self.auto_upload_chk.toggled.connect(self._auto_upload_toggled)
-        switches_layout.addWidget(self.auto_upload_chk)
+        self.monitor_auto_upload_chk = QCheckBox("Auto-Upload Completed")
+        self.monitor_auto_upload_chk.setChecked(self.settings.auto_upload_enabled)
+        self.monitor_auto_upload_chk.toggled.connect(self._auto_upload_toggled)
+        switches_layout.addWidget(self.monitor_auto_upload_chk)
         monitor_layout.addLayout(switches_layout)
 
-        # Level Meters
+        # Level Meters Group
         meters_group = QGroupBox("Live Audio Input Levels")
         meters_layout = QVBoxLayout(meters_group)
-        
-        self.mic_meter = VolumeMeter("Microphone", channel_type="mic", theme=self.settings.theme, parent=self)
-        self.spk_meter = VolumeMeter("Speakers (Loopback)", channel_type="system", theme=self.settings.theme, parent=self)
-        
-        meters_layout.addWidget(self.mic_meter)
-        meters_layout.addWidget(self.spk_meter)
+        levels_hint = QLabel("Audio levels are actively monitored in the top header bar.")
+        levels_hint.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        meters_layout.addWidget(levels_hint)
         monitor_layout.addWidget(meters_group)
 
         # Tagging widget (Grows and expands with window resize)
@@ -732,6 +840,8 @@ class MainWindow(QMainWindow):
 
         self.dashboard_subtabs.addTab(tab_monitor, "Audio && Session Monitor")
         self.dashboard_subtabs.addTab(self.copilot_widget, "Live Meeting Copilot")
+        self.dashboard_subtabs.setCurrentWidget(self.copilot_widget)
+        self.dashboard_subtabs.tabBar().setVisible(False)
 
     def _setup_history_tab(self) -> None:
         layout = QVBoxLayout(self.history_tab)
@@ -787,6 +897,8 @@ class MainWindow(QMainWindow):
         """Populates or updates the recordings history table from storage safely in-place."""
         self._update_history_info_label()
         recordings = self.storage.get_recordings()
+        if hasattr(self, "sidebar") and self.sidebar:
+            self.sidebar.set_history_badge(len(recordings))
         
         # If row count is different, adjust the rows
         if self.history_table.rowCount() != len(recordings):
@@ -812,14 +924,17 @@ class MainWindow(QMainWindow):
             else:
                 item0.setText(created_str)
             
-            # 1. Filename
-            file_title = filename if exists else f"{filename} (Deleted)"
+            # 1. Filename / Title
+            custom_title = rec.get("custom_title", "").strip()
+            display_name = custom_title if custom_title else filename
+            file_title = display_name if exists else f"{display_name} (Deleted)"
             item1 = self.history_table.item(row, 1)
             if not item1:
                 item1 = QTableWidgetItem(file_title)
                 self.history_table.setItem(row, 1, item1)
             else:
                 item1.setText(file_title)
+            item1.setToolTip(f"File: {filename}\nPath: {file_path}")
             item1.setForeground(QColor("#f5f6fa" if exists else "#7f8c8d"))
             
             # 2. Trigger
@@ -957,7 +1072,7 @@ class MainWindow(QMainWindow):
                 """)
                 reup_btn.setToolTip("Upload recording to Speakr server")
                 reup_btn.setEnabled(exists)
-                reup_btn.clicked.connect(lambda _, p=file_path, t=rec.get("tag_ids", []): self._reupload_file(p, t))
+                reup_btn.clicked.connect(lambda _, p=file_path, t=rec.get("tag_ids", []), ct=rec.get("custom_title", ""): self._reupload_file(p, t, ct))
                 action_layout.addWidget(reup_btn)
 
                 # Reveal in Explorer button
@@ -1019,11 +1134,12 @@ class MainWindow(QMainWindow):
         dlg = NotesViewerDialog(notes_path, filename, parent=self)
         dlg.exec()
 
-    def _reupload_file(self, file_path: str, tag_ids: List[int]) -> None:
+    def _reupload_file(self, file_path: str, tag_ids: List[int], custom_title: Optional[str] = None) -> None:
         filename = os.path.basename(file_path)
-        self._log(f"Re-uploading '{filename}'...")
-        self.statusBar().showMessage(f"Re-uploading '{filename}' in background...")
-        self.uploader.process_file(file_path, tag_ids)
+        display_name = custom_title if custom_title else filename
+        self._log(f"Re-uploading '{display_name}'...")
+        self.statusBar().showMessage(f"Re-uploading '{display_name}' in background...")
+        self.uploader.process_file(file_path, tag_ids, custom_title=custom_title)
 
     def _reveal_in_explorer(self, file_path: str) -> None:
         """Opens Windows File Explorer and selects the recording file."""
@@ -1107,26 +1223,69 @@ class MainWindow(QMainWindow):
         # 2. Upload Preferences
         upload_group = QGroupBox("Upload Preference")
         upload_layout = QVBoxLayout(upload_group)
+        upload_layout.setSpacing(6)
+
         self.mode_api_radio = QRadioButton("Direct API Upload (transmits file directly via REST API)")
         self.mode_folder_radio = QRadioButton("NAS Folder Copy (saves file to NAS_Share, tagged asynchronously)")
-        if self.settings.upload_mode == "api":
+        
+        # Nested Auto-Upload container under Direct API Upload
+        self.api_nested_widget = QWidget()
+        api_nested_layout = QVBoxLayout(self.api_nested_widget)
+        api_nested_layout.setContentsMargins(24, 2, 0, 8)
+        api_nested_layout.setSpacing(4)
+
+        self.auto_upload_chk = QCheckBox("Automatically Upload Completed Recordings")
+        self.auto_upload_chk.setToolTip("When enabled, recordings are uploaded to the Speakr server immediately upon completion.")
+        self.auto_upload_chk.blockSignals(True)
+        self.auto_upload_chk.setChecked(self.settings.auto_upload_enabled)
+        self.auto_upload_chk.blockSignals(False)
+        self.auto_upload_chk.toggled.connect(self._auto_upload_toggled)
+        api_nested_layout.addWidget(self.auto_upload_chk)
+
+        api_desc = QLabel("Files upload to the active Speakr instance automatically when recording stops.")
+        api_desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        api_nested_layout.addWidget(api_desc)
+
+        self.mode_api_radio.blockSignals(True)
+        self.mode_folder_radio.blockSignals(True)
+        is_api = (self.settings.upload_mode == "api")
+        if is_api:
             self.mode_api_radio.setChecked(True)
         else:
             self.mode_folder_radio.setChecked(True)
-        self.mode_api_radio.toggled.connect(self._upload_mode_changed)
-        self.mode_folder_radio.toggled.connect(self._upload_mode_changed)
+        self.mode_api_radio.blockSignals(False)
+        self.mode_folder_radio.blockSignals(False)
+        self.mode_api_radio.toggled.connect(self._on_upload_mode_api_toggled)
+        self.mode_folder_radio.toggled.connect(self._on_upload_mode_folder_toggled)
+
         upload_layout.addWidget(self.mode_api_radio)
+        upload_layout.addWidget(self.api_nested_widget)
         upload_layout.addWidget(self.mode_folder_radio)
+
+        # Nested NAS Folder container under NAS Folder Copy
+        self.folder_nested_widget = QWidget()
+        folder_nested_layout = QVBoxLayout(self.folder_nested_widget)
+        folder_nested_layout.setContentsMargins(24, 2, 0, 4)
+        folder_nested_layout.setSpacing(4)
 
         folder_layout = QHBoxLayout()
         folder_layout.addWidget(QLabel("NAS Ingestion Path:"))
         self.nas_path_input = QLineEdit(self.settings.nas_folder_path)
-        self.nas_path_input.setReadOnly(True)
+        self.nas_path_input.setPlaceholderText(r"e.g. \\192.168.0.86\share\inbox or Z:\AudioRecordings\Inbox")
+        self.nas_path_input.setReadOnly(False)
+        self.nas_path_input.textChanged.connect(self._on_nas_path_changed)
         folder_layout.addWidget(self.nas_path_input)
         self.browse_btn = QPushButton("Browse...")
         self.browse_btn.clicked.connect(self._browse_nas_folder)
         folder_layout.addWidget(self.browse_btn)
-        upload_layout.addLayout(folder_layout)
+        folder_nested_layout.addLayout(folder_layout)
+
+        upload_layout.addWidget(self.folder_nested_widget)
+
+        # Initial visibility based on saved upload_mode
+        self.api_nested_widget.setVisible(is_api)
+        self.folder_nested_widget.setVisible(not is_api)
+
         tab_server_layout.addWidget(upload_group)
         tab_server_layout.addStretch()
 
@@ -1168,7 +1327,9 @@ class MainWindow(QMainWindow):
         storage_layout = QFormLayout(storage_group)
         storage_folder_box = QHBoxLayout()
         self.storage_path_input = QLineEdit(self.settings.local_recordings_dir or str(self.settings.resolved_recordings_dir))
-        self.storage_path_input.setReadOnly(True)
+        self.storage_path_input.setPlaceholderText(r"e.g. C:\Users\name\SpeakrCompanion\recordings")
+        self.storage_path_input.setReadOnly(False)
+        self.storage_path_input.textChanged.connect(self._on_local_storage_dir_changed)
         storage_folder_box.addWidget(self.storage_path_input)
         browse_storage_btn = QPushButton("Browse...")
         browse_storage_btn.clicked.connect(self._browse_local_storage_dir)
@@ -1352,7 +1513,7 @@ class MainWindow(QMainWindow):
 
         # Row 2: LM Studio Endpoint
         self.lm_studio_url_input = QLineEdit(self.settings.lm_studio_endpoint)
-        self.lm_studio_url_input.setPlaceholderText("http://localhost:1234/v1 or http://192.168.0.88:1234/v1")
+        self.lm_studio_url_input.setPlaceholderText("http://localhost:1234/v1 or http://192.168.0.86:1234/v1")
         self.lm_studio_url_input.textChanged.connect(self._asr_settings_changed)
         self.llm_form.addRow("LM Studio URL:", self.lm_studio_url_input)
 
@@ -1394,8 +1555,19 @@ class MainWindow(QMainWindow):
         model_row_layout = QHBoxLayout()
         self.llm_model_combo = QComboBox(self)
         self.llm_model_combo.setEditable(True)
-        self.llm_model_combo.lineEdit().setPlaceholderText("e.g. llama3.2, qwen2.5-coder, or gpt-4o-mini")
-        self.llm_model_combo.setCurrentText(self.settings.llm_model)
+        self.llm_model_combo.lineEdit().setPlaceholderText("e.g. qwen/qwen3-vl-4b, llama3.2, or gpt-4o-mini")
+        self.llm_model_combo.blockSignals(True)
+        
+        curr_model = (self.settings.llm_model or "").strip()
+        if curr_model:
+            self.llm_model_combo.addItem(curr_model)
+        for preset in ["qwen/qwen3-vl-4b", "llama3.2", "qwen2.5-coder", "openai/gpt-4o-mini", "meta-llama-3.1-8b-instruct"]:
+            if self.llm_model_combo.findText(preset) == -1:
+                self.llm_model_combo.addItem(preset)
+        
+        if curr_model:
+            self.llm_model_combo.setCurrentText(curr_model)
+        self.llm_model_combo.blockSignals(False)
         self.llm_model_combo.currentTextChanged.connect(self._asr_settings_changed)
         model_row_layout.addWidget(self.llm_model_combo, 1)
 
@@ -1795,21 +1967,25 @@ class MainWindow(QMainWindow):
         self._log(f"Loading tags from {server_conf['name']}...")
         
         def fetch_tags():
-            client = SpeakrClient(base_url=server_conf["url"], api_key=server_conf["api_key"])
-            tags = client.list_tags()
-            
-            class TagsSignal(QObject):
-                sig = Signal(list)
-            
-            self._tags_bridge = TagsSignal()
-            self._tags_bridge.sig.connect(self._populate_tags_ui)
-            self._tags_bridge.sig.emit(tags)
+            try:
+                client = SpeakrClient(base_url=server_conf["url"], api_key=server_conf["api_key"])
+                tags = client.list_tags()
+                if hasattr(self, 'signaler') and self.signaler:
+                    self.signaler.tags_loaded_signal.emit(tags or [])
+            except Exception:
+                pass
             
         threading.Thread(target=fetch_tags, daemon=True).start()
 
     def _populate_tags_ui(self, tags: List[Dict[str, Any]]) -> None:
-        self.tag_selector.set_tags(tags)
-        self._log(f"Loaded {len(tags)} tags from server.")
+        try:
+            if hasattr(self, "tag_selector") and self.tag_selector:
+                self.tag_selector.set_tags(tags)
+            if hasattr(self, "record_view") and self.record_view:
+                self.record_view.populate_tags(tags)
+            self._log(f"Loaded {len(tags)} tags from server.")
+        except Exception:
+            pass
 
     # Preferences Handlers
     def _recording_format_changed(self) -> None:
@@ -1818,27 +1994,60 @@ class MainWindow(QMainWindow):
             self.settings.recording_format = fmt
             self._log(f"Recording format set to: {fmt.upper()}")
 
+    def _on_upload_mode_api_toggled(self, checked: bool) -> None:
+        if checked:
+            self.settings.upload_mode = "api"
+            self.settings.save()
+            if hasattr(self, "api_nested_widget"):
+                self.api_nested_widget.setVisible(True)
+            if hasattr(self, "folder_nested_widget"):
+                self.folder_nested_widget.setVisible(False)
+            self._log("Upload preference set to: DIRECT API UPLOAD")
+
+    def _on_upload_mode_folder_toggled(self, checked: bool) -> None:
+        if checked:
+            self.settings.upload_mode = "folder"
+            self.settings.save()
+            if hasattr(self, "api_nested_widget"):
+                self.api_nested_widget.setVisible(False)
+            if hasattr(self, "folder_nested_widget"):
+                self.folder_nested_widget.setVisible(True)
+            self._log("Upload preference set to: NAS FOLDER COPY")
+
     def _upload_mode_changed(self) -> None:
         if self.mode_api_radio.isChecked():
             self.settings.upload_mode = "api"
-        else:
+        elif self.mode_folder_radio.isChecked():
             self.settings.upload_mode = "folder"
+        self.settings.save()
         self._log(f"Upload preference set to: {self.settings.upload_mode.upper()}")
+
+    def _on_nas_path_changed(self, text: str) -> None:
+        self.settings.nas_folder_path = text.strip()
+        self.settings.save()
 
     def _browse_nas_folder(self) -> None:
         dir_path = QFileDialog.getExistingDirectory(self, "Select NAS Share Inbox Folder", self.settings.nas_folder_path)
         if dir_path:
-            self.settings.nas_folder_path = dir_path.replace("/", "\\")
-            self.nas_path_input.setText(self.settings.nas_folder_path)
-            self._log(f"NAS Inbox folder set to: {self.settings.nas_folder_path}")
+            norm_path = dir_path.replace("/", "\\")
+            self.nas_path_input.setText(norm_path)
+            self.settings.nas_folder_path = norm_path
+            self.settings.save()
+            self._log(f"NAS Inbox folder set to: {norm_path}")
+
+    def _on_local_storage_dir_changed(self, text: str) -> None:
+        self.settings.local_recordings_dir = text.strip()
+        self.settings.save()
 
     def _browse_local_storage_dir(self) -> None:
         dir_path = QFileDialog.getExistingDirectory(self, "Select Local Recordings Storage Folder", str(self.settings.resolved_recordings_dir))
         if dir_path:
-            self.settings.local_recordings_dir = dir_path.replace("/", "\\")
-            self.storage_path_input.setText(self.settings.local_recordings_dir)
+            norm_path = dir_path.replace("/", "\\")
+            self.storage_path_input.setText(norm_path)
+            self.settings.local_recordings_dir = norm_path
+            self.settings.save()
             self._update_history_info_label()
-            self._log(f"Local storage directory set to: {self.settings.local_recordings_dir}")
+            self._log(f"Local storage directory set to: {norm_path}")
 
     def _retention_changed(self) -> None:
         days = self.retention_combo.currentData()
@@ -1871,6 +2080,12 @@ class MainWindow(QMainWindow):
             self.setStyleSheet(get_theme_stylesheet(theme_name))
 
         # Update custom widgets
+        if hasattr(self, "sidebar") and self.sidebar:
+            self.sidebar.set_theme(theme_name)
+        if hasattr(self, "meetings_view") and self.meetings_view:
+            self.meetings_view.set_theme(theme_name)
+        if hasattr(self, "record_view") and self.record_view:
+            self.record_view.set_theme(theme_name)
         if hasattr(self, "mic_meter") and self.mic_meter:
             self.mic_meter.set_theme(theme_name)
         if hasattr(self, "spk_meter") and self.spk_meter:
@@ -1936,7 +2151,12 @@ class MainWindow(QMainWindow):
                 rec_dir.mkdir(parents=True, exist_ok=True)
                 ext = self.settings.recording_format.lower().lstrip(".")
                 timestamp_str = time.strftime("%Y-%m-%d_%H%M%S")
-                file_name = f"Meeting_{timestamp_str}_Manual.{ext}"
+                custom_title = self.record_view.get_meeting_title() if hasattr(self, "record_view") else ""
+                if custom_title and not custom_title.startswith("Meeting — "):
+                    safe_title = "".join(c for c in custom_title if c.isalnum() or c in (" ", "-", "_")).strip().replace(" ", "_")
+                    file_name = f"{safe_title}_{timestamp_str}_Manual.{ext}"
+                else:
+                    file_name = f"Meeting_{timestamp_str}_Manual.{ext}"
                 output_path = str(rec_dir / file_name)
                 
                 self.current_recording_mode = "manual"
@@ -1978,7 +2198,15 @@ class MainWindow(QMainWindow):
             try:
                 file_path = self.recorder.output_file_path
                 duration = self.recorder.elapsed_seconds
-                selected_tags = self.tag_selector.selected_tag_ids()
+                selected_tags = self.tag_selector.selected_tag_ids() if hasattr(self, "tag_selector") else []
+                custom_title = ""
+                if hasattr(self, "record_view") and self.record_view:
+                    rec_tag_id = self.record_view.get_selected_tag_id()
+                    if rec_tag_id is not None and rec_tag_id not in selected_tags:
+                        selected_tags.append(rec_tag_id)
+                    raw_title = self.record_view.get_meeting_title()
+                    if raw_title and not raw_title.startswith("Meeting — "):
+                        custom_title = raw_title
                 
                 notes_path = self._stop_copilot_session(file_path)
                 self.duration_timer.stop()
@@ -1996,13 +2224,14 @@ class MainWindow(QMainWindow):
                         duration_seconds=duration,
                         tag_ids=selected_tags,
                         status="Local Only",
-                        notes_path=notes_path
+                        notes_path=notes_path,
+                        custom_title=custom_title
                     )
                     self._refresh_history_table()
                     
                     if self.settings.auto_upload_enabled:
                         self.statusBar().showMessage("Uploading recording in background...")
-                        self.uploader.process_file(file_path, selected_tags)
+                        self.uploader.process_file(file_path, selected_tags, custom_title=custom_title)
                         self.upload_last_btn.setEnabled(False)
                     else:
                         self.statusBar().showMessage("Recording saved locally. Click 'Upload Last' to send.")
@@ -2011,6 +2240,8 @@ class MainWindow(QMainWindow):
                     self.statusBar().showMessage("Recording stopped (no file generated).")
                 
                 self.tag_selector.clear_selection()
+                if hasattr(self, 'record_view') and self.record_view:
+                    self.record_view.reset_title_and_tags()
             except Exception as e:
                 self._log(f"[Error] Error stopping recording: {e}")
                 self.statusBar().showMessage(f"Error stopping recording: {e}", 5000)
@@ -2020,11 +2251,31 @@ class MainWindow(QMainWindow):
     def _upload_last_recording(self) -> None:
         if self.last_recording_path and os.path.exists(self.last_recording_path):
             filename = os.path.basename(self.last_recording_path)
-            self.statusBar().showMessage(f"Uploading '{filename}' in background...")
-            selected_tags = self.tag_selector.selected_tag_ids()
-            self.uploader.process_file(self.last_recording_path, selected_tags)
+            selected_tags = self.tag_selector.selected_tag_ids() if hasattr(self, "tag_selector") else []
+            custom_title = ""
+            if self.storage:
+                rec_meta = self.storage.get_recording(self.last_recording_path)
+                if rec_meta:
+                    custom_title = rec_meta.get("custom_title", "")
+                    if not selected_tags and rec_meta.get("tag_ids"):
+                        selected_tags = rec_meta.get("tag_ids", [])
+            if not custom_title and hasattr(self, "record_view") and self.record_view:
+                raw_title = self.record_view.get_meeting_title()
+                if raw_title and not raw_title.startswith("Meeting — "):
+                    custom_title = raw_title
+            if hasattr(self, "record_view") and self.record_view:
+                rec_tag_id = self.record_view.get_selected_tag_id()
+                if rec_tag_id is not None and rec_tag_id not in selected_tags:
+                    selected_tags.append(rec_tag_id)
+
+            display_name = custom_title if custom_title else filename
+            self.statusBar().showMessage(f"Uploading '{display_name}' in background...")
+            self.uploader.process_file(self.last_recording_path, selected_tags, custom_title=custom_title)
             self.upload_last_btn.setEnabled(False)
-            self.tag_selector.clear_selection()
+            if hasattr(self, "tag_selector") and self.tag_selector:
+                self.tag_selector.clear_selection()
+                if hasattr(self, 'record_view') and self.record_view:
+                    self.record_view.reset_title_and_tags()
         else:
             self.statusBar().showMessage("Error: No completed recording available to upload.", 5000)
 
@@ -2109,6 +2360,17 @@ class MainWindow(QMainWindow):
 
     def _auto_upload_toggled(self, checked: bool) -> None:
         self.settings.auto_upload_enabled = checked
+        self.settings.save()
+        if hasattr(self, "auto_upload_chk") and self.auto_upload_chk:
+            if self.auto_upload_chk.isChecked() != checked:
+                self.auto_upload_chk.blockSignals(True)
+                self.auto_upload_chk.setChecked(checked)
+                self.auto_upload_chk.blockSignals(False)
+        if hasattr(self, "monitor_auto_upload_chk") and self.monitor_auto_upload_chk:
+            if self.monitor_auto_upload_chk.isChecked() != checked:
+                self.monitor_auto_upload_chk.blockSignals(True)
+                self.monitor_auto_upload_chk.setChecked(checked)
+                self.monitor_auto_upload_chk.blockSignals(False)
         self._log(f"Auto-upload: {checked}")
 
     def _rules_changed(self) -> None:
@@ -2174,38 +2436,62 @@ class MainWindow(QMainWindow):
         self.signaler.auto_record_finish_signal.emit(file_path, tags)
 
     def _handle_auto_record_finished(self, file_path: str, tags: List[int]) -> None:
-        notes_path = self._stop_copilot_session(file_path)
-        self.duration_timer.stop()
-        self._update_recording_controls_visibility()
-        self._log(f"[Monitor] Auto-recording finished: {os.path.basename(file_path)}")
-        self.statusBar().showMessage("Auto-recording finished.")
-        
-        if file_path and os.path.exists(file_path):
-            self.last_recording_path = file_path
-            ui_tags = self.tag_selector.selected_tag_ids()
-            combined_tags = list(set(tags + ui_tags))
+        try:
+            notes_path = self._stop_copilot_session(file_path)
+            self.duration_timer.stop()
+            self._update_recording_controls_visibility()
+            self._log(f"[Monitor] Auto-recording finished: {os.path.basename(file_path)}")
+            if hasattr(self, "statusBar") and self.statusBar():
+                self.statusBar().showMessage("Auto-recording finished.")
             
-            # Save to storage
-            trigger_type = self.current_recording_mode.replace("auto - ", "")
-            self.storage.add_recording(
-                file_path=file_path,
-                trigger=trigger_type,
-                duration_seconds=self.recorder.elapsed_seconds,
-                tag_ids=combined_tags,
-                status="Local Only",
-                notes_path=notes_path
-            )
-            self._refresh_history_table()
-            
-            if self.settings.auto_upload_enabled:
-                self.statusBar().showMessage("Uploading auto-recording in background...")
-                self.uploader.process_file(file_path, combined_tags)
-                self.upload_last_btn.setEnabled(False)
-            else:
-                self.upload_last_btn.setEnabled(True)
-                self.statusBar().showMessage("Auto-recording saved locally. Click 'Upload Last' to send.")
+            if file_path and os.path.exists(file_path):
+                self.last_recording_path = file_path
+                ui_tags = []
+                if hasattr(self, "tag_selector") and self.tag_selector:
+                    try:
+                        ui_tags = self.tag_selector.selected_tag_ids()
+                    except Exception:
+                        pass
+                if hasattr(self, "record_view") and self.record_view:
+                    rec_tag_id = self.record_view.get_selected_tag_id()
+                    if rec_tag_id is not None and rec_tag_id not in ui_tags:
+                        ui_tags.append(rec_tag_id)
+                combined_tags = list(set(tags + ui_tags))
+                
+                custom_title = ""
+                if hasattr(self, "record_view") and self.record_view:
+                    raw_title = self.record_view.get_meeting_title()
+                    if raw_title and not raw_title.startswith("Meeting — "):
+                        custom_title = raw_title
+
+                # Save to storage
+                trigger_type = self.current_recording_mode.replace("auto - ", "")
+                self.storage.add_recording(
+                    file_path=file_path,
+                    trigger=trigger_type,
+                    duration_seconds=self.recorder.elapsed_seconds,
+                    tag_ids=combined_tags,
+                    status="Local Only",
+                    notes_path=notes_path,
+                    custom_title=custom_title
+                )
+                self._refresh_history_table()
+                
+                if self.settings.auto_upload_enabled:
+                    if hasattr(self, "statusBar") and self.statusBar():
+                        self.statusBar().showMessage("Uploading auto-recording in background...")
+                    self.uploader.process_file(file_path, combined_tags, custom_title=custom_title)
+                    self.upload_last_btn.setEnabled(False)
+                else:
+                    self.upload_last_btn.setEnabled(True)
+                    if hasattr(self, "statusBar") and self.statusBar():
+                        self.statusBar().showMessage("Auto-recording saved locally. Click 'Upload Last' to send.")
+        except Exception as e:
+            self._log(f"Error handling auto-record finished: {e}")
         
         self.tag_selector.clear_selection()
+        if hasattr(self, "record_view") and self.record_view:
+            self.record_view.reset_title_and_tags()
 
     # Copilot & Meeting Mode Handlers
     def _meeting_mode_changed(self) -> None:
@@ -2235,11 +2521,15 @@ class MainWindow(QMainWindow):
         stype = self.lm_studio_type_combo.currentData()
         current_url = self.lm_studio_url_input.text().strip()
         if stype == "local":
-            if not current_url or "192.168." in current_url or "10." in current_url:
+            if not current_url or "192.168." in current_url:
                 self.lm_studio_url_input.setText("http://localhost:1234/v1")
         elif stype == "remote":
-            if current_url in ("", "http://localhost:1234/v1"):
-                self.lm_studio_url_input.setText("http://192.168.0.88:1234/v1")
+            if not current_url or current_url == "http://localhost:1234/v1":
+                saved = getattr(self.settings, "lm_studio_endpoint", "").strip()
+                if saved and saved != "http://localhost:1234/v1":
+                    self.lm_studio_url_input.setText(saved)
+                else:
+                    self.lm_studio_url_input.setText("http://192.168.0.86:1234/v1")
         self._asr_settings_changed()
 
     def _on_lm_studio_bypass_auth_toggled(self, checked: bool) -> None:
@@ -2333,11 +2623,16 @@ class MainWindow(QMainWindow):
                 # Restore previous model or select first
                 if current_val and current_val in models:
                     self.llm_model_combo.setCurrentText(current_val)
+                    self.settings.llm_model = current_val
+                    self.settings.lm_studio_model = current_val
                 elif models:
                     self.llm_model_combo.setCurrentIndex(0)
                     self.settings.llm_model = models[0]
+                    self.settings.lm_studio_model = models[0]
                 
                 self.llm_model_combo.blockSignals(False)
+                self.settings.save()
+                self._asr_settings_changed()
                 count = len(models)
                 msg = f"✓ Found {count} LM Studio model(s): {', '.join(models[:3])}{'...' if count > 3 else ''}"
                 self._log(f"[LM Studio] {msg}")
@@ -2376,18 +2671,30 @@ class MainWindow(QMainWindow):
             self.settings.lm_studio_bypass_auth = self.lm_studio_bypass_auth_chk.isChecked()
         if hasattr(self, "lm_studio_key_input"):
             self.settings.lm_studio_api_key = self.lm_studio_key_input.text().strip()
-        self.settings.openrouter_api_key = self.openrouter_key_input.text().strip()
-        self.settings.gemini_api_key = self.gemini_key_input.text().strip()
-        self.settings.ollama_endpoint = self.ollama_endpoint_input.text().strip()
+        if hasattr(self, "openrouter_key_input"):
+            self.settings.openrouter_api_key = self.openrouter_key_input.text().strip()
+        if hasattr(self, "gemini_key_input"):
+            self.settings.gemini_api_key = self.gemini_key_input.text().strip()
+        if hasattr(self, "ollama_endpoint_input"):
+            self.settings.ollama_endpoint = self.ollama_endpoint_input.text().strip()
         if hasattr(self, "llm_model_combo"):
-            self.settings.llm_model = self.llm_model_combo.currentText().strip()
+            m_val = self.llm_model_combo.currentText().strip()
+            if m_val:
+                self.settings.llm_model = m_val
+                if self.settings.llm_provider == "lm_studio":
+                    self.settings.lm_studio_model = m_val
         elif hasattr(self, "llm_model_input"):
-            self.settings.llm_model = self.llm_model_input.text().strip()
-        cadence = self.cadence_combo.currentData()
-        if cadence:
-            self.settings.copilot_cadence_seconds = int(cadence)
-        self.settings.privacy_mode = self.privacy_mode_chk.isChecked()
+            m_val = self.llm_model_input.text().strip()
+            if m_val:
+                self.settings.llm_model = m_val
+        if hasattr(self, "cadence_combo"):
+            cadence = self.cadence_combo.currentData()
+            if cadence:
+                self.settings.copilot_cadence_seconds = int(cadence)
+        if hasattr(self, "privacy_mode_chk"):
+            self.settings.privacy_mode = self.privacy_mode_chk.isChecked()
 
+        self.settings.save()
         self._update_dynamic_copilot_settings_visibility()
 
         if self.asr_manager:
@@ -2435,6 +2742,8 @@ class MainWindow(QMainWindow):
                 asr_name_or_key=self.settings.asr_provider
             )
             self.hud.update_engine_status(self.copilot_agent.get_engine_info() if self.copilot_agent else None)
+            if hasattr(self.hud, "sync_settings_state"):
+                self.hud.sync_settings_state(self.settings)
         self._log("Copilot & ASR settings updated.")
 
     def _save_quick_action_prompts_clicked(self) -> None:
@@ -2503,6 +2812,8 @@ class MainWindow(QMainWindow):
     def _toggle_copilot_hud(self) -> None:
         """Switches to the Live Meeting Copilot dashboard sub-tab."""
         self.tabs.setCurrentWidget(self.dashboard_tab)
+        if hasattr(self, "sidebar") and self.sidebar:
+            self.sidebar.set_current_page("record")
         if hasattr(self, "dashboard_subtabs") and hasattr(self, "copilot_widget") and self.copilot_widget:
             self.dashboard_subtabs.setCurrentWidget(self.copilot_widget)
 
@@ -2540,18 +2851,21 @@ class MainWindow(QMainWindow):
             )
 
         if self.hud is None:
-            self.hud = CopilotDashboardWidget(
+            self.record_view = RecordView(
                 self.copilot_memory, 
                 self.copilot_agent,
-                initial_opacity=self.settings.hud_opacity,
-                theme=self.settings.theme
+                theme=self.settings.theme,
+                parent=self
             )
+            self.hud = self.record_view
+            self.copilot_widget = self.record_view
             self.hud.meeting_mode_changed.connect(self._on_hud_meeting_mode_changed)
             self.hud.asr_provider_changed.connect(self._on_hud_asr_provider_changed)
             self.hud.enable_copilot_requested.connect(self._enable_copilot_from_hud)
             self.hud.open_prompts_settings_requested.connect(self._open_prompts_tab_from_hud)
             self.hud.set_copilot_enabled(self.settings.copilot_enabled)
-            self.copilot_widget = self.hud
+            if hasattr(self.hud, 'reset_session_requested'):
+                self.hud.reset_session_requested.connect(self._on_copilot_session_reset)
 
             # Configure agent and update initial HUD engine status
             api_key = ""
@@ -2577,6 +2891,7 @@ class MainWindow(QMainWindow):
                 custom_summary_instruction=self.settings.get_rolling_summary_instruction()
             )
             self.hud.update_engine_status(self.copilot_agent.get_engine_info())
+            self.hud.sync_settings_state(self.settings)
 
     def _on_hud_meeting_mode_changed(self, mode: str) -> None:
         """Handle meeting mode switch initiated directly from Copilot widget badge."""
@@ -2612,6 +2927,11 @@ class MainWindow(QMainWindow):
             )
         self._log(f"[Copilot] Switched ASR engine to: {provider}")
 
+    def _on_copilot_session_reset(self) -> None:
+        """Handles manual reset signal from Copilot RecordView HUD."""
+        if hasattr(self, "tag_selector") and self.tag_selector:
+            self.tag_selector.clear_selection()
+
     def _start_copilot_session(self) -> None:
         """Starts real-time transcription tap and Copilot agent."""
         if not self.settings.copilot_enabled:
@@ -2621,6 +2941,8 @@ class MainWindow(QMainWindow):
         self.copilot_memory.clear()
         if self.hud:
             self.hud.clear()
+        if hasattr(self, "tag_selector") and self.tag_selector:
+            self.tag_selector.clear_selection()
         self.vad_segmenter.reset()
         self.vad_segmenter.set_meeting_mode(self.settings.meeting_mode)
 
@@ -2733,20 +3055,21 @@ class MainWindow(QMainWindow):
             super().changeEvent(event)
 
     def closeEvent(self, event) -> None:
-        if self.settings.close_to_tray:
+        if self.settings.close_to_tray and event.spontaneous():
             event.ignore()
             self.hide()
             self._log("Application hidden to system tray on window close.")
         else:
             self.duration_timer.stop()
             self.cooldown_timer.stop()
-            self.monitor.stop()
-            self.recorder.terminate()
-            if self.copilot_agent:
+            if hasattr(self, "monitor") and self.monitor:
+                self.monitor.stop()
+            if hasattr(self, "recorder") and self.recorder:
+                self.recorder.terminate()
+            if hasattr(self, "copilot_agent") and self.copilot_agent:
                 self.copilot_agent.stop()
-            if self.asr_manager:
+            if hasattr(self, "asr_manager") and self.asr_manager:
                 self.asr_manager.shutdown()
-            if self.hud:
+            if hasattr(self, "hud") and self.hud:
                 self.hud.close()
             event.accept()
-            QApplication.quit()

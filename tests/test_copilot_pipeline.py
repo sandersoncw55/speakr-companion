@@ -1,9 +1,15 @@
 import os
 import sys
+import tempfile
+from pathlib import Path
+
+# Isolate all tests to a temporary settings directory so user's real settings.json is untouched
+_TEST_SETTINGS_DIR = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+os.environ["LOCALAPPDATA"] = _TEST_SETTINGS_DIR.name
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import time
-from pathlib import Path
 import numpy as np
 from core.copilot.memory import CopilotMemory, SuggestedQuestion, FollowUpItem
 from core.copilot.prompts import get_periodic_prompt, DEFAULT_QUICK_PROMPTS
@@ -420,7 +426,7 @@ def test_recordings_notes_linking_and_viewer():
     cfg = Settings()
     mgr = RecordingsManager(cfg)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         fake_rec = os.path.join(tmpdir, "Recording_2026-09-18_test.mp4")
         fake_notes = os.path.join(tmpdir, "Meeting_Notes_2026-09-18_test.md")
         
@@ -504,10 +510,11 @@ def test_notes_upload_and_summarization_linkage():
 
         # 2. Test AudioUploader notes resolution & API mode
         cfg = Settings()
+        cfg.servers = [{"name": "Test Speakr", "url": "http://localhost:8899", "api_key": "test_key_123"}]
         cfg.upload_mode = "api"
         storage = RecordingsManager(cfg)
         
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             audio_path = os.path.join(tmpdir, "Meeting_2026-09-18.mp4")
             notes_path = os.path.join(tmpdir, "Meeting_2026-09-18_Notes.md")
             with open(audio_path, "wb") as f:
@@ -547,7 +554,10 @@ def test_notes_upload_and_summarization_linkage():
             os.makedirs(nas_dir, exist_ok=True)
             cfg.nas_folder_path = nas_dir
 
-            uploader._process_background(audio_path, [], audio_path)
+            with patch.object(uploader, "_poll_and_tag") as mock_poll:
+                uploader._process_background(audio_path, [], audio_path)
+                assert mock_poll.called
+
             copied_audio = os.path.join(nas_dir, "Meeting_2026-09-18.mp4")
             copied_notes = os.path.join(nas_dir, "Meeting_2026-09-18_Notes.md")
             assert os.path.exists(copied_audio)
@@ -572,6 +582,7 @@ def test_static_control_bar_and_dashboard_tabs():
 
     app = QApplication.instance() or QApplication([])
     s = Settings()
+    s.auto_record_enabled = False
     rec = AudioRecorder()
     stor = RecordingsManager(s)
     up = AudioUploader(s, stor)
@@ -646,10 +657,38 @@ def test_static_control_bar_and_dashboard_tabs():
         # 7. Test _toggle_copilot_hud switches tab
         w._toggle_copilot_hud()
         assert w.dashboard_subtabs.currentWidget() == w.copilot_widget
+
+        # 8. Test nested Auto-Upload toggle under Direct API Upload
+        assert hasattr(w, "auto_upload_chk")
+        assert hasattr(w, "api_nested_widget")
+        assert hasattr(w, "folder_nested_widget")
+        assert hasattr(w, "monitor_auto_upload_chk")
+        
+        # In API mode, api_nested_widget is visible and folder_nested_widget is hidden
+        w.mode_api_radio.setChecked(True)
+        assert not w.api_nested_widget.isHidden()
+        assert w.folder_nested_widget.isHidden()
+        
+        # Toggle auto-upload and verify settings & sync
+        w.auto_upload_chk.setChecked(False)
+        assert w.settings.auto_upload_enabled is False
+        assert w.monitor_auto_upload_chk.isChecked() is False
+        
+        # Switch to NAS folder mode -> api_nested_widget hides, folder_nested_widget shows
+        w.mode_folder_radio.setChecked(True)
+        assert w.api_nested_widget.isHidden()
+        assert not w.folder_nested_widget.isHidden()
+        
+        # Switch back to API mode
+        w.mode_api_radio.setChecked(True)
+        assert not w.api_nested_widget.isHidden()
+        assert w.folder_nested_widget.isHidden()
+        
+        # Toggle auto-upload via monitor checkbox -> syncs back to nested auto_upload_chk
+        w.monitor_auto_upload_chk.setChecked(True)
+        assert w.settings.auto_upload_enabled is True
+        assert w.auto_upload_chk.isChecked() is True
     finally:
-        if w.hud:
-            w.hud.close()
-        rec.terminate()
         w.close()
 
     print("[OK] Static Control Bar, Copilot Toggle Button, and Dashboard Sub-Tabs passed.")
@@ -668,6 +707,7 @@ def test_hud_clear_on_start_and_manual_reset():
 
     app = QApplication.instance() or QApplication([])
     s = Settings()
+    s.auto_record_enabled = False
     s.copilot_enabled = True
     rec = AudioRecorder()
     stor = RecordingsManager(s)
@@ -747,9 +787,7 @@ def test_hud_clear_on_start_and_manual_reset():
         assert hud.status_dot.toolTip() == "Status: Recording Active"
 
     finally:
-        if w.hud:
-            w.hud.close()
-        rec.terminate()
+        w._stop_copilot_session()
         w.close()
 
     print("[OK] HUD Clear on Start Recording & Manual Reset passed.")
@@ -801,9 +839,10 @@ def test_history_icon_buttons_and_model_fetch_ui():
 
     app = QApplication.instance() or QApplication([])
     s = Settings()
+    s.auto_record_enabled = False
     rec = AudioRecorder()
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         s.local_recordings_dir = tmpdir
         stor = RecordingsManager(s)
         up = AudioUploader(s, stor)
@@ -860,9 +899,6 @@ def test_history_icon_buttons_and_model_fetch_ui():
                 assert kwargs.get("api_key") == "secret-auth-token"
 
         finally:
-            if w.hud:
-                w.hud.close()
-            rec.terminate()
             w.close()
 
     print("[OK] History Table Icon Buttons & Model Fetch UI passed.")
@@ -917,11 +953,12 @@ def test_light_and_dark_theme_system():
     assert tag_sel.theme == "light"
     
     # 4. MainWindow dynamic theme toggle
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         cfg = Settings()
         cfg.settings_file = Path(tmpdir) / "settings.json"
         cfg.data = dict(Settings.DEFAULT_SETTINGS)
         cfg.data["local_recordings_dir"] = tmpdir
+        cfg.data["auto_record_enabled"] = False
         cfg.theme = "dark"
         
         storage = RecordingsManager(cfg)
@@ -947,9 +984,6 @@ def test_light_and_dark_theme_system():
             assert w.mic_meter.theme == "dark"
             assert w.hud.theme == "dark"
         finally:
-            if w.hud:
-                w.hud.close()
-            rec.terminate()
             w.close()
 
     print("[OK] Light & Dark Theme System passed.")
@@ -974,6 +1008,7 @@ def test_open_speakr_web_instance_button():
         cfg.settings_file = Path(tmpdir) / "settings.json"
         cfg.data = dict(Settings.DEFAULT_SETTINGS)
         cfg.data["local_recordings_dir"] = tmpdir
+        cfg.data["auto_record_enabled"] = False
         cfg.data["servers"] = [
             {"name": "Local Speakr", "url": "http://192.168.0.88:8899/api/v1", "api_key": "key123"},
             {"name": "Cloud Speakr", "url": "https://speakr.example.com", "api_key": "cloud123"}
@@ -1006,10 +1041,6 @@ def test_open_speakr_web_instance_button():
                 opened_qurl = mock_open.call_args[0][0]
                 assert opened_qurl.toString() == "https://speakr.example.com"
         finally:
-            w.monitor.stop()
-            if w.hud:
-                w.hud.close()
-            rec.terminate()
             w.close()
     print("[OK] Open Speakr Web Instance Button passed.")
 
@@ -1064,6 +1095,68 @@ def test_noise_filtering_and_topic_cards():
     # 3. Valid technical deliverable (Jira story) should be captured
     assert any("jira" in task.lower() or "story" in task.lower() for task in follow_up_tasks)
     print("[OK] Noise filtering and structured topic cards passed.")
+
+
+def test_dynamic_topic_derivation_and_no_vdi_bias():
+    """Verifies that everyday conversation with 'think', 'thousands', 'something' does NOT produce false VDI/Storage topics."""
+    print("Testing Dynamic Topic Derivation & Absence of False VDI/Storage Bias...")
+    from core.copilot.agent import OfflineExtractiveEngine
+    from core.copilot.memory import CopilotMemory
+
+    engine = OfflineExtractiveEngine()
+
+    # Case 1: Sprint planning and checkout roadmap (contains words: 'think', 'thousands', 'something', 'within')
+    mem1 = CopilotMemory()
+    mem1.add_transcript("you", "I think we should align on the sprint roadmap and milestone schedule for Q4.", time.time(), 1)
+    mem1.add_transcript("participants", "We have thousands of users waiting for the new checkout page design.", time.time(), 2)
+    mem1.add_transcript("participants", "The team agreed that the payment gateway integration will be finalized by Friday.", time.time(), 3)
+    mem1.add_transcript("you", "Within this sprint, something needs to be delivered for the mobile checkout flow.", time.time(), 4)
+
+    res1 = engine.generate_periodic(mem1.turns, [])
+    rolling1 = res1["rolling_summary"]
+    topics1 = [t["title"] for t in rolling1.get("topics", [])]
+    summary_text1 = " ".join(rolling1.get("summary_bullets", [])) + " " + rolling1.get("executive_summary", "")
+
+    # Storage & VDI must NOT appear in titles or summary
+    for t_title in topics1:
+        assert "storage & vdi" not in t_title.lower(), f"Unexpected VDI bias in topic title: {t_title}"
+    assert "storage & vdi" not in summary_text1.lower(), f"Unexpected VDI bias in summary text: {summary_text1}"
+
+    # Must contain dynamic topic matching sprint/roadmap/checkout/payment
+    assert any(
+        any(k in t.lower() for k in ["sprint", "roadmap", "checkout", "payment", "milestone", "product"])
+        for t in topics1
+    ), f"Expected dynamic sprint/roadmap topic, got: {topics1}"
+
+    # Case 2: Budget and licensing
+    mem2 = CopilotMemory()
+    mem2.add_transcript("you", "We need to review the quarterly budget allocation and vendor licensing contract.", time.time(), 1)
+    mem2.add_transcript("participants", "The committee approved thirty thousand dollars for software procurement.", time.time(), 2)
+    res2 = engine.generate_periodic(mem2.turns, [])
+    rolling2 = res2["rolling_summary"]
+    topics2 = [t["title"] for t in rolling2.get("topics", [])]
+
+    for t_title in topics2:
+        assert "storage & vdi" not in t_title.lower(), f"Unexpected VDI bias in budget meeting: {t_title}"
+    assert any(
+        any(k in t.lower() for k in ["budget", "licensing", "procurement", "finance", "contract", "vendor"])
+        for t in topics2
+    ), f"Expected dynamic budget/procurement topic, got: {topics2}"
+
+    # Case 3: Verify CopilotMemory doesn't merge distinct topics due to common single-word substring
+    mem3 = CopilotMemory()
+    mem3.set_rolling_summary({
+        "topics": [
+            {"title": "Frontend Architecture Review", "summary": "Discussed client React performance.", "status": "in_progress"},
+            {"title": "Backend Architecture Review", "summary": "Discussed server gRPC endpoints.", "status": "in_progress"}
+        ]
+    })
+    stored_titles = [t["title"] for t in mem3.rolling_summary["topics"]]
+    assert len(stored_titles) == 2, f"Distinct topics collapsed unexpectedly: {stored_titles}"
+    assert "Frontend Architecture Review" in stored_titles
+    assert "Backend Architecture Review" in stored_titles
+
+    print("[OK] Dynamic Topic Derivation & No VDI Bias passed.")
 
 
 def test_reasoning_engine_healthcheck_and_badge():
@@ -1122,10 +1215,11 @@ def test_configurable_quick_action_prompts():
     from core.copilot.memory import CopilotMemory
     from core.copilot.agent import CopilotAgent
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         cfg = Settings()
         cfg.settings_file = Path(tmpdir) / "settings.json"
         cfg.data = dict(Settings.DEFAULT_SETTINGS)
+        cfg.data["auto_record_enabled"] = False
 
         # Check default prompt retrieval
         prompt1 = cfg.get_quick_action_instruction("what_to_ask")
@@ -1196,10 +1290,6 @@ def test_configurable_quick_action_prompts():
             assert win.tabs.currentWidget() == win.preferences_tab
             assert win.pref_subtabs.currentWidget() == win.tab_prompts_scroll
         finally:
-            win.monitor.stop()
-            if win.hud:
-                win.hud.close()
-            rec.terminate()
             win.close()
 
     print("[OK] Configurable Quick Action Prompts passed.")
@@ -1216,10 +1306,9 @@ def test_rolling_summary_prompt_and_popout():
     from gui.main_window import MainWindow
 
     # 1. Config tests
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         settings_file = Path(tmp_dir) / "settings.json"
-        s = Settings()
-        s.settings_file = settings_file
+        s = Settings(settings_file=settings_file)
         s.save()
         assert s.get_rolling_summary_instruction() == DEFAULT_ROLLING_SUMMARY_PROMPT
 
@@ -1229,8 +1318,7 @@ def test_rolling_summary_prompt_and_popout():
         s.save()
 
         # Reload
-        s2 = Settings()
-        s2.settings_file = settings_file
+        s2 = Settings(settings_file=settings_file)
         s2.load()
         assert s2.rolling_summary_prompt == custom_instr
         assert s2.get_rolling_summary_instruction() == custom_instr
@@ -1246,10 +1334,10 @@ def test_rolling_summary_prompt_and_popout():
 
     # 2. UI and Pop-out tests
     app = QApplication.instance() or QApplication(sys.argv)
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         settings_file = Path(tmp_dir) / "settings.json"
-        s = Settings()
-        s.settings_file = settings_file
+        s = Settings(settings_file=settings_file)
+        s.data["auto_record_enabled"] = False
         s.save()
         storage = RecordingsManager(s)
         rec = AudioRecorder()
@@ -1301,13 +1389,375 @@ def test_rolling_summary_prompt_and_popout():
             assert hud.summary_popped_placeholder.isHidden()
 
         finally:
-            win.monitor.stop()
-            if win.hud:
-                win.hud.close()
-            rec.terminate()
             win.close()
 
-    print("[OK] Rolling Summary Prompt Configuration and Pop-out Window passed.")
+
+def test_gui_makeover_components():
+    """Verifies VerticalSidebar, RecordView 2-column workstation, and ServerMeetingsView."""
+    print("Testing GUI Makeover Components (Sidebar, RecordView Workstation, ServerMeetingsView)...")
+    from PySide6.QtWidgets import QApplication
+    from gui.sidebar import VerticalSidebar
+    from gui.record_view import RecordView
+    from gui.meetings_view import ServerMeetingsView
+    from core.copilot.memory import CopilotMemory
+    from core.copilot.agent import CopilotAgent
+    from core.config import Settings
+
+    app = QApplication.instance() or QApplication([])
+
+    # 1. VerticalSidebar
+    sidebar = VerticalSidebar(theme="dark")
+    nav_events = []
+    sidebar.page_changed.connect(lambda p: nav_events.append(p))
+
+    assert "record" in sidebar.nav_buttons
+    assert "meetings" in sidebar.nav_buttons
+    assert "history" in sidebar.nav_buttons
+
+    sidebar.nav_buttons["meetings"].click()
+    assert len(nav_events) == 1
+    assert nav_events[-1] == "meetings"
+    assert sidebar.current_page == "meetings"
+
+    sidebar.update_history_badge(7)
+    assert sidebar.history_badge.text() == "7"
+    assert not sidebar.history_badge.isHidden()
+    sidebar.close()
+
+    # 2. RecordView Workstation
+    mem = CopilotMemory()
+    agent = CopilotAgent(mem, on_results_callback=lambda r: None)
+    record_view = RecordView(mem, agent, theme="dark")
+    try:
+        # Check meeting name input
+        assert hasattr(record_view, "meeting_name_input")
+        record_view.meeting_name_input.setText("Cloud Migration Review")
+        assert record_view.get_meeting_title() == "Cloud Migration Review"
+
+        # Check tag selector auto-population
+        tags = [
+            {"id": 1, "name": "Cloud Infra", "color": "#38bdf8"},
+            {"id": 2, "name": "Security Audit", "color": "#f87171"}
+        ]
+        record_view.populate_tags(tags)
+        assert record_view.tag_combo.count() == 3  # (No Tag) + 2 tags
+        assert "Cloud Infra" in record_view.tag_combo.itemText(1)
+        assert record_view.tag_combo.itemData(1) == 1
+        record_view.tag_combo.setCurrentIndex(1)
+        assert record_view.get_selected_tag() == "Cloud Infra"
+        assert record_view.get_selected_tag_id() == 1
+
+        # Check Open Notes markdown editor & auto-sync to CopilotMemory
+        assert hasattr(record_view, "notes_editor")
+        test_notes = "## Deployment Plan\n- Roll out cluster canary pods\n- Monitor Datadog latency metric"
+        record_view.notes_editor.setPlainText(test_notes)
+        record_view._sync_notes_to_memory()  # Flush sync immediately
+        assert mem.get_notes_markdown() == test_notes
+        prompt_ctx = mem.get_prompt_context()
+        assert "Deployment Plan" in prompt_ctx
+        assert "cluster canary pods" in prompt_ctx
+
+        # Check markdown formatting tools
+        record_view.notes_editor.selectAll()
+        record_view._wrap_selection("**", "**")
+        assert "**" in record_view.notes_editor.toPlainText()
+
+        # Check Right Column Tabbed Section
+        assert hasattr(record_view, "right_tabs")
+        assert record_view.right_tabs.count() == 4
+        tab_names = [record_view.right_tabs.tabText(i) for i in range(4)]
+        assert any("Chat" in t for t in tab_names)
+        assert any("Live Q&A" in t for t in tab_names)
+        assert any("Summary" in t for t in tab_names)
+        assert any("Transcript" in t for t in tab_names)
+
+        # Check Quick Action triggers in Summary tab
+        assert hasattr(record_view, "btn_catch_up")
+        assert hasattr(record_view, "btn_action_items")
+        assert hasattr(record_view, "btn_risks")
+        assert hasattr(record_view, "btn_jargon")
+
+        # Test Markdown formatting in Summary tab
+        record_view._on_quick_action_gui("Catch Up", "### Key Highlights\n- Point A\n- Point B\n\n**Decision**: Verified.")
+        assert "Key Highlights" in record_view.quick_action_browser.toPlainText()
+        assert "Point A" in record_view.quick_action_browser.toPlainText()
+        assert "Decision: Verified" in record_view.quick_action_browser.toPlainText() or "Verified" in record_view.quick_action_browser.toPlainText()
+
+        # Test Settings synchronization
+        test_settings = Settings()
+        test_settings.meeting_mode = "in_person"
+        test_settings.asr_provider = "mac_lan"
+        record_view.sync_settings_state(test_settings)
+        assert record_view.mode_combo.currentData() == "in_person"
+        assert record_view.asr_combo.currentData() == "mac_lan"
+    finally:
+        record_view.close()
+
+    # 3. ServerMeetingsView
+    cfg = Settings()
+    meetings_view = ServerMeetingsView(settings=cfg, client=None, theme="dark")
+    try:
+        sample_meetings = [
+            {"id": 101, "title": "SAN Storage Cutover", "timestamp": "2026-10-12T10:00:00", "summary": "Storage migration completed."},
+            {"id": 102, "title": "API Gateway Refactor", "timestamp": "2026-10-12T11:00:00", "summary": "Kong ingress routes configured."}
+        ]
+        meetings_view._on_meetings_loaded(sample_meetings)
+        assert meetings_view.meetings_list.count() == 2
+
+        # Test search filtering
+        meetings_view.search_input.setText("SAN")
+        visible_items = [
+            meetings_view.meetings_list.item(i) 
+            for i in range(meetings_view.meetings_list.count()) 
+            if not meetings_view.meetings_list.item(i).isHidden()
+        ]
+        assert len(visible_items) == 1
+
+        # Clear search
+        meetings_view.search_input.setText("")
+
+        # Select meeting and inspect detail view
+        meetings_view.meetings_list.setCurrentRow(0)
+        assert meetings_view.selected_meeting is not None
+        assert "SAN Storage Cutover" in meetings_view.detail_title_lbl.text()
+        assert "Storage migration completed." in meetings_view.summary_browser.toPlainText()
+
+        # Test details_loaded signal and markdown with notes + transcription
+        detailed_payload = {
+            "id": 101,
+            "title": "SAN Storage Cutover",
+            "summary": "Full SAN Migration Summary",
+            "notes": "Action items: reboot switch A",
+            "transcription": [
+                {"speaker": "Alice", "text": "Starting fiber channel switch.", "start": 12.0},
+                {"speaker": "Bob", "text": "Confirmed failover path.", "start": 25.5}
+            ],
+            "audio_duration": 185.0,
+            "participants": "Alice, Bob, Charlie"
+        }
+        meetings_view.details_loaded.emit("101", detailed_payload)
+        assert "Full SAN Migration Summary" in meetings_view.summary_browser.toPlainText()
+        assert "Attached Notes" in meetings_view.summary_browser.toPlainText()
+        assert "Action items: reboot switch A" in meetings_view.summary_browser.toPlainText()
+        assert "Alice: Starting fiber channel switch." in meetings_view.transcript_browser.toPlainText()
+        assert "Bob: Confirmed failover path." in meetings_view.transcript_browser.toPlainText()
+        assert "Duration: 3m 5s" in meetings_view.detail_meta_sub.text()
+        assert "Alice, Bob, Charlie" in meetings_view.detail_meta_sub.text()
+    finally:
+        meetings_view.close()
+
+    print("[OK] GUI Makeover Components passed.")
+
+
+def test_meeting_title_renaming_and_tag_persistence():
+    print("Testing Meeting Title Renaming and Integer Tag Persistence on Upload...")
+    from unittest.mock import MagicMock, patch
+    from core.client import SpeakrClient
+    from core.config import Settings
+    from core.uploader import AudioUploader
+    from core.storage import RecordingsManager
+    from gui.record_view import RecordView
+    from core.copilot.memory import CopilotMemory
+
+    # 1. Test SpeakrClient.update_recording
+    client = SpeakrClient("http://localhost:8899")
+    with patch("httpx.Client") as mock_httpx:
+        mock_ctx = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_ctx.patch.return_value = mock_resp
+        mock_httpx.return_value.__enter__.return_value = mock_ctx
+
+        res = client.update_recording("rec_123", title="Sprint Architecture Review")
+        assert res is True
+        mock_ctx.patch.assert_called_once()
+        patch_url, patch_kwargs = mock_ctx.patch.call_args
+        assert patch_kwargs["json"] == {"title": "Sprint Architecture Review"}
+
+    # 2. Test RecordView tag combo stores int IDs and returns get_selected_tag_id()
+    mem = CopilotMemory()
+    rv = RecordView(mem, None)
+    try:
+        sample_tags = [
+            {"id": 42, "name": "Sprint Review", "color": "#10b981"},
+            {"id": 99, "name": "Architecture", "color": "#6366f1"}
+        ]
+        rv.populate_tags(sample_tags)
+        assert rv.tag_combo.count() == 3  # "No Tag" + 2 tags
+
+        # Select second tag (id 42)
+        rv.tag_combo.setCurrentIndex(1)
+        assert rv.get_selected_tag_id() == 42
+        assert rv.get_selected_tag() == "Sprint Review"
+
+        # Select third tag (id 99)
+        rv.tag_combo.setCurrentIndex(2)
+        assert rv.get_selected_tag_id() == 99
+        assert rv.get_selected_tag() == "Architecture"
+
+        # Select No Tag
+        rv.tag_combo.setCurrentIndex(0)
+        assert rv.get_selected_tag_id() is None
+        assert rv.get_selected_tag() is None
+    finally:
+        rv.close()
+
+    # 3. Test AudioUploader processes custom_title and sanitizes string/int tags
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cfg = Settings()
+        cfg.settings_dir = Path(tmpdir)
+        cfg.recordings_dir = Path(tmpdir)
+        cfg.upload_mode = "api"
+        cfg.servers = [{"name": "Test Server", "url": "http://localhost:8899", "api_key": "sec_key"}]
+        cfg.active_server_index = 0
+
+        storage = RecordingsManager(cfg)
+        audio_file = os.path.join(tmpdir, "Meeting_2026-10-13_120000_Manual.mp4")
+        with open(audio_file, "wb") as f:
+            f.write(b"dummy audio")
+
+        uploader = AudioUploader(cfg, storage=storage)
+
+        storage.add_recording(
+            file_path=audio_file,
+            trigger="manual",
+            duration_seconds=45.0,
+            tag_ids=[42],
+            custom_title="Quarterly SAN Roadmap"
+        )
+
+        with patch("core.uploader.SpeakrClient") as MockClientCls:
+            mock_client = MagicMock()
+            mock_client.upload_recording.return_value = "rec_555"
+            mock_client.update_recording.return_value = True
+            mock_client.add_recording_tags.return_value = True
+            MockClientCls.return_value = mock_client
+
+            # Pass mixed string and int tags to verify sanitization
+            uploader.process_file(
+                audio_file, 
+                tag_ids=[42, "99", "invalid", None], 
+                custom_title="Quarterly SAN Roadmap"
+            )
+
+            # Wait briefly for daemon thread execution
+            time.sleep(0.5)
+
+            # Verify upload_recording called with custom title
+            mock_client.upload_recording.assert_called_once()
+            _, up_kwargs = mock_client.upload_recording.call_args
+            assert up_kwargs["title"] == "Quarterly SAN Roadmap"
+
+            # Verify explicit update_recording called on Speakr API to ensure title persists
+            mock_client.update_recording.assert_called_with("rec_555", title="Quarterly SAN Roadmap")
+
+            # Verify tags were sanitized to clean integer IDs [42, 99]
+            mock_client.add_recording_tags.assert_called_with("rec_555", [42, 99])
+
+        # Verify storage stored custom_title
+        saved = storage.get_recording(audio_file)
+        assert saved is not None
+        assert saved.get("status") == "Uploaded"
+        assert saved.get("server_id") == "rec_555"
+        assert saved.get("custom_title") == "Quarterly SAN Roadmap"
+
+    print("[OK] Meeting Title Renaming and Integer Tag Persistence passed.")
+
+
+def test_dynamic_keyphrase_extraction_and_title_tag_reset():
+    print("Testing Dynamic Keyphrase Extraction, Corpus Mining, and Title/Tag Reset...")
+    from core.copilot.agent import OfflineExtractiveEngine, CopilotAgent
+    from core.copilot.corpus import DynamicDomainCorpus
+    from core.copilot.memory import CopilotMemory
+    from gui.record_view import RecordView
+    from gui.widgets import TagSelector
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+
+    # 1. Test live dynamic entity & acronym extraction
+    dialogue = (
+        "We configured the Intune application packaging pipeline with PSADT, MSI wrappers, "
+        "and custom registry entries set by Group Policy for W365 and Autopilot."
+    )
+    ents = OfflineExtractiveEngine.extract_dynamic_entities(dialogue)
+    assert any("PSADT" in e for e in ents), f"Expected PSADT in {ents}"
+    assert any("MSI" in e for e in ents), f"Expected MSI in {ents}"
+    assert any("W365" in e for e in ents), f"Expected W365 in {ents}"
+    assert any("Intune" in e or "Packaging" in e for e in ents), f"Expected packaging/intune in {ents}"
+
+    # 2. Test DynamicDomainCorpus note mining
+    corpus = DynamicDomainCorpus.get_instance()
+    sample_md = """
+    CURRENT AGENDA: Microsoft Graph & Autopilot Deployment
+    ### 🔹 Intune Application Packaging (Win32 & PSADT)
+    - Confirmed RBAC delegated permissions
+    - Fixed GPO registry key overrides
+    """
+    corpus._extract_terms_from_markdown(sample_md)
+    assert corpus.is_known_domain_term("rbac") is True
+    assert corpus.is_known_domain_term("gpo") is True
+    assert corpus.is_known_domain_term("autopilot") is True
+
+    # 3. Test dynamic clustering and topic synthesis on packaging dialogue
+    mem = CopilotMemory()
+    mem.add_transcript("participants", "Some packages rely on registry entries set by group policy to detect workstation type.", time.time(), 1)
+    mem.add_transcript("participants", "This avoids the need to repackage applications with environment variables.", time.time(), 2)
+    mem.add_transcript("you", "We agreed to explore injecting registry-based detection logic into existing packages.", time.time(), 3)
+    mem.add_transcript("participants", "The Oracle package requires full re-creation due to VBScript and .NET version incompatibility.", time.time(), 4)
+
+    engine = OfflineExtractiveEngine()
+    res = engine.generate_periodic(mem.turns, [])
+    rolling = res["rolling_summary"]
+    topics = rolling.get("topics", [])
+    assert len(topics) > 0
+    # Topics should capture packaging or registry detection
+    topic_titles = [t["title"] for t in topics]
+    assert any("Packaging" in t or "Registry" in t or "Detection" in t or "Policy" in t for t in topic_titles), f"Expected dynamic packaging/registry topic in {topic_titles}"
+
+    # Suggested questions should cite extracted entities (e.g. Oracle, Registry, or Packaging)
+    q_texts = [q["question"] for q in res.get("suggested_questions", [])]
+    assert any("Oracle" in q or "Registry" in q or "Detection" in q or "Package" in q or "Policy" in q for q in q_texts), f"Expected entity citations in questions: {q_texts}"
+
+    # 4. Test RecordView meeting title and tag reset
+    agent = CopilotAgent(mem, lambda r: None)
+    rv = RecordView(mem, agent)
+    rv.populate_tags([{"id": 101, "name": "Architecture"}, {"id": 102, "name": "Packaging"}])
+    rv.tag_combo.setCurrentIndex(2)  # Select Packaging
+    rv.set_meeting_title("Custom Pilot Review")
+    assert rv.get_meeting_title() == "Custom Pilot Review"
+    assert rv.get_selected_tag() == "Packaging"
+    assert rv.get_selected_tag_id() == 102
+
+    # Reset title and tags
+    rv.reset_title_and_tags()
+    assert rv.get_meeting_title().startswith("Meeting — ")
+    assert rv.get_selected_tag_id() is None
+    assert rv.tag_combo.currentIndex() == 0
+
+    # Manual reset triggers reset signal and clears interface
+    signal_fired = []
+    rv.reset_session_requested.connect(lambda: signal_fired.append(True))
+    rv.set_meeting_title("Another Meeting")
+    rv.tag_combo.setCurrentIndex(1)
+    rv._on_manual_reset_clicked()
+    assert len(signal_fired) == 1
+    assert rv.get_meeting_title().startswith("Meeting — ")
+    assert rv.get_selected_tag_id() is None
+
+    # TagSelector clear selection
+    ts = TagSelector()
+    ts.set_tags([{"id": 1, "name": "DevOps"}, {"id": 2, "name": "Packaging"}])
+    # Check first item
+    first_cb = ts.list_widget.itemWidget(ts.list_widget.item(0)).findChild(type(rv.tag_combo))
+    ts.clear_selection()
+    assert ts.selected_tag_ids() == []
+
+    # 5. Fast-start warmup and refresh button
+    assert hasattr(rv, "refresh_summary_btn")
+    assert hasattr(rv, "chat_status_lbl")
+    assert hasattr(agent, "trigger_immediate_periodic_analysis")
+    print("[OK] Dynamic Keyphrase Extraction, Corpus Mining, and Title/Tag Reset passed.")
 
 
 if __name__ == "__main__":
@@ -1330,8 +1780,13 @@ if __name__ == "__main__":
     test_light_and_dark_theme_system()
     test_open_speakr_web_instance_button()
     test_noise_filtering_and_topic_cards()
+    test_dynamic_topic_derivation_and_no_vdi_bias()
     test_reasoning_engine_healthcheck_and_badge()
     test_configurable_quick_action_prompts()
     test_rolling_summary_prompt_and_popout()
+    test_gui_makeover_components()
+    test_meeting_title_renaming_and_tag_persistence()
+    test_dynamic_keyphrase_extraction_and_title_tag_reset()
     print("\nALL PIPELINE INTEGRATION TESTS PASSED SUCCESSFULLY!")
+
 

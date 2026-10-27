@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Desktop / Local PC Screen -->
+  <rect x="2" y="3" width="20" height="14" rx="2" stroke="#a78bfa" fill="#8b5cf6" fill-opacity="0.15"/>
+  <line x1="8" y1="21" x2="16" y2="21" stroke="#a78bfa"/>
+  <line x1="12" y1="17" x2="12" y2="21" stroke="#a78bfa"/>
+  <!-- Audio waveform inside screen -->
+  <path d="M6 10l2-3 2 6 2-5 2 4 2-2 2 1" stroke="#c4b5fd" stroke-width="1.8"/>
+</svg>

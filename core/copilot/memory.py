@@ -1,7 +1,41 @@
 import time
 import threading
+import re
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
+
+def _normalize_tokens(text: str) -> set:
+    """Extracts lowercase alpha-numeric word tokens, filtering short stopwords."""
+    stopwords = {"the", "a", "an", "and", "or", "to", "of", "in", "for", "with", "on", "at", "by", "from", "is", "are", "was", "were", "that", "this"}
+    words = re.findall(r'[a-zA-Z0-9]+', text.lower())
+    return {w for w in words if len(w) > 2 and w not in stopwords}
+
+def _is_semantically_similar(text_a: str, text_b: str, threshold: float = 0.65) -> bool:
+    """Checks if two sentences are redundant using Jaccard token overlap."""
+    toks_a = _normalize_tokens(text_a)
+    toks_b = _normalize_tokens(text_b)
+    if not toks_a or not toks_b:
+        return text_a.strip().lower() == text_b.strip().lower()
+    intersection = toks_a.intersection(toks_b)
+    union = toks_a.union(toks_b)
+    similarity = len(intersection) / len(union)
+    return similarity >= threshold
+
+def _is_trivial_topic(title: str, summary: str = "") -> bool:
+    """Filters out conversational warmups, greetings, or placeholder topics."""
+    combined = f"{title} {summary}".lower()
+    trivial_phrases = [
+        "initial exploration",
+        "unknown technical detail",
+        "meeting kickoff",
+        "introductory remarks",
+        "exploratory phase",
+        "lack of immediate recall",
+        "pledges to investigate",
+        "conversation has just begun",
+        "no concrete technical subject"
+    ]
+    return any(p in combined for p in trivial_phrases)
 
 @dataclass
 class TranscriptTurn:
@@ -31,7 +65,7 @@ class FollowUpItem:
 class CopilotMemory:
     """Thread-safe context buffer managing transcript history, rolling summary, questions, and action items."""
 
-    def __init__(self, max_history_seconds: float = 240.0):
+    def __init__(self, max_history_seconds: float = 900.0):
         self.max_history_seconds = max_history_seconds
         self.lock = threading.Lock()
         
@@ -79,19 +113,22 @@ class CopilotMemory:
             self.turns.append(turn)
             # Prune turns older than max_history_seconds if history gets very long
             now = time.time()
-            if len(self.turns) > 120:
+            if len(self.turns) > 500:
                 cutoff = now - (self.max_history_seconds * 2.5)
                 self.turns = [t for t in self.turns if t.timestamp >= cutoff]
 
         return turn
 
-    def get_recent_transcript(self, seconds: float = 180.0) -> str:
-        """Returns the formatted transcript of the last N seconds."""
+    def get_recent_transcript(self, seconds: float = 900.0) -> str:
+        """Returns the formatted transcript of the last N seconds (or last 25 turns minimum if available)."""
         now = time.time()
         cutoff = now - seconds
         with self.lock:
             recent = [t for t in self.turns if t.timestamp >= cutoff]
-            if not recent:
+            # Ensure minimum context depth: if time window yielded fewer than 25 turns, take up to last 25 turns
+            if len(recent) < 25 and len(self.turns) >= 25:
+                recent = self.turns[-25:]
+            elif not recent:
                 recent = self.turns[-4:] if self.turns else []
             
             lines = [f"{t.speaker_label} ({t.formatted_time}): {t.text}" for t in recent]
@@ -106,7 +143,7 @@ class CopilotMemory:
     # --- Rolling Summary Mutators ---
 
     def set_rolling_summary(self, summary_data: Dict[str, Any]):
-        """Updates rolling executive summary and key decisions with accumulating rolling topic and bullet updates."""
+        """Updates rolling executive summary and key decisions with accumulating rolling topic narrative updates."""
         with self.lock:
             if not isinstance(summary_data, dict):
                 return
@@ -116,94 +153,116 @@ class CopilotMemory:
             incoming_topics = summary_data.get("topics", [])
             decisions = summary_data.get("key_decisions", [])
             
-            if topic:
+            if topic and not _is_trivial_topic(topic):
                 self.rolling_summary["topic"] = topic
 
-            # 1. Accumulate and update Topic Cards
+            # 1. Accumulate and iteratively update Topic Narratives
             if isinstance(incoming_topics, list) and incoming_topics:
                 current_topics = self.rolling_summary.setdefault("topics", [])
+                
+                # First, prune any previously stored trivial topics
+                current_topics = [t for t in current_topics if not _is_trivial_topic(t.get("title", ""), t.get("summary", ""))]
+                self.rolling_summary["topics"] = current_topics
+
                 for it in incoming_topics:
                     if not isinstance(it, dict):
                         continue
                     title = it.get("title", "").strip()
-                    if not title:
-                        continue
                     summary = it.get("summary", "").strip()
+                    if not title or _is_trivial_topic(title, summary):
+                        continue
                     status = it.get("status", "in_progress").strip()
-                    key_points = [p.strip() for p in it.get("key_points", []) if isinstance(p, str) and p.strip()]
+                    raw_points = [p.strip() for p in it.get("key_points", []) if isinstance(p, str) and p.strip()]
 
-                    # Check if matching topic already exists
+                    # Check if matching topic already exists (normalized title or token overlap)
                     matched = None
                     title_norm = title.lower()
                     for existing in current_topics:
-                        existing_norm = existing.get("title", "").lower()
-                        if title_norm in existing_norm or existing_norm in title_norm:
+                        existing_title = existing.get("title", "")
+                        existing_norm = existing_title.lower()
+                        # 1. Exact match
+                        if title_norm == existing_norm:
+                            matched = existing
+                            break
+                        # 2. Strong token Jaccard similarity
+                        if _is_semantically_similar(title, existing_title, 0.65):
+                            matched = existing
+                            break
+                        # 3. Substring match only if the smaller title has 3+ words (prevent short single words from swallowing topics)
+                        words_t = title_norm.split()
+                        words_e = existing_norm.split()
+                        if (len(words_t) >= 3 and title_norm in existing_norm) or (len(words_e) >= 3 and existing_norm in title_norm):
                             matched = existing
                             break
 
                     if matched:
                         if summary:
+                            # Replace matched topic summary with the newly fused, cumulative narrative
                             matched["summary"] = summary
                         if status:
                             matched["status"] = status
-                        if key_points:
-                            existing_pts = set(matched.get("key_points", []))
-                            for kp in key_points:
-                                if kp not in existing_pts:
-                                    matched.setdefault("key_points", []).append(kp)
-                                    existing_pts.add(kp)
+                        # Filter key_points to avoid duplicating what is already covered or repeated
+                        if raw_points:
+                            existing_pts = matched.setdefault("key_points", [])
+                            for kp in raw_points:
+                                # Don't add if already similar to an existing key point
+                                if not any(_is_semantically_similar(kp, ep, 0.6) for ep in existing_pts):
+                                    existing_pts.append(kp)
                     else:
                         current_topics.append({
                             "title": title,
                             "summary": summary,
                             "status": status,
-                            "key_points": key_points
+                            "key_points": raw_points
                         })
 
-                if len(current_topics) > 12:
-                    self.rolling_summary["topics"] = current_topics[-12:]
+                if len(current_topics) > 15:
+                    self.rolling_summary["topics"] = current_topics[-15:]
 
-                if not topic and current_topics:
+                if (not self.rolling_summary.get("topic") or _is_trivial_topic(self.rolling_summary.get("topic", ""))) and current_topics:
                     self.rolling_summary["topic"] = current_topics[-1]["title"]
 
-            # 2. Ensure summary_bullets list exists
+            # 2. Maintain summary_bullets list for backwards compatibility / executive overview
             current_bullets = self.rolling_summary.setdefault("summary_bullets", [])
             
-            # Accumulate and roll forward synthesized bullet points
             if isinstance(incoming_bullets, list) and incoming_bullets:
                 existing_norms = {b.strip().lower().rstrip(".") for b in current_bullets if isinstance(b, str)}
                 for b in incoming_bullets:
                     if isinstance(b, str) and b.strip():
                         b_clean = b.strip()
                         norm = b_clean.lower().rstrip(".")
-                        if norm not in existing_norms:
+                        if norm not in existing_norms and not any(_is_semantically_similar(b_clean, eb, 0.65) for eb in current_bullets):
                             current_bullets.append(b_clean)
                             existing_norms.add(norm)
             elif exec_sum and not current_bullets:
                 current_bullets.append(exec_sum)
             
-            # Cap rolling bullet history
             if len(current_bullets) > 25:
                 self.rolling_summary["summary_bullets"] = current_bullets[-25:]
 
-            # Keep executive_summary string synchronized for backward compatibility
+            # Synchronize executive_summary
             if exec_sum:
                 self.rolling_summary["executive_summary"] = exec_sum
+            elif self.rolling_summary.get("topics"):
+                # Synthesize executive summary from top topic narratives
+                top_narratives = [t["summary"] for t in self.rolling_summary["topics"] if t.get("summary")]
+                if top_narratives:
+                    self.rolling_summary["executive_summary"] = " ".join(top_narratives[:2])
             elif self.rolling_summary["summary_bullets"]:
                 self.rolling_summary["executive_summary"] = " ".join(self.rolling_summary["summary_bullets"][-3:])
             
+            # 3. Deduplicate Decisions & Consensus with fuzzy semantic matching
             if isinstance(decisions, list):
                 clean_decisions = []
                 for d in decisions:
                     if isinstance(d, str) and d.strip():
                         clean_decisions.append(d.strip())
                 if clean_decisions:
-                    # Accumulate unique decisions
-                    existing_dec = set(self.rolling_summary.get("key_decisions", []))
+                    existing_dec = self.rolling_summary.setdefault("key_decisions", [])
                     for cd in clean_decisions:
-                        if cd not in existing_dec:
-                            self.rolling_summary.setdefault("key_decisions", []).append(cd)
-                            existing_dec.add(cd)
+                        # Check exact and semantic similarity against existing decisions
+                        if not any(_is_semantically_similar(cd, ed, 0.60) for ed in existing_dec):
+                            existing_dec.append(cd)
 
     # --- Questions Mutators ---
 
@@ -353,6 +412,18 @@ class CopilotMemory:
             self.user_notes = [n.strip() for n in notes if n.strip()]
             self.live_notes = self.user_notes
 
+    def set_notes_markdown(self, markdown_text: str):
+        """Replaces custom user notes from the open notes markdown editor."""
+        with self.lock:
+            lines = [line.strip() for line in markdown_text.splitlines() if line.strip()]
+            self.user_notes = lines
+            self.live_notes = self.user_notes
+
+    def get_notes_markdown(self) -> str:
+        """Returns the joined user notes as markdown."""
+        with self.lock:
+            return "\n".join(self.user_notes)
+
     # --- Markdown & Context Serialization ---
 
     def get_scratchpad_markdown(self) -> str:
@@ -378,15 +449,12 @@ class CopilotMemory:
                     md_lines.append(f"### 🔹 {top.get('title', 'Discussion Topic')}{status_badge}")
                     if top.get("summary"):
                         md_lines.append(f"{top['summary']}\n")
-                    for kp in top.get("key_points", []):
-                        md_lines.append(f"- {kp}")
-                    md_lines.append("")
+            elif exec_sum:
+                md_lines.append(f"{exec_sum}\n")
             elif bullets:
                 for b in bullets:
                     md_lines.append(f"- {b}")
                 md_lines.append("")
-            elif exec_sum:
-                md_lines.append(f"{exec_sum}\n")
             else:
                 md_lines.append("*Summary will synthesize as discussion progresses.*\n")
 
@@ -431,7 +499,7 @@ class CopilotMemory:
 
     def get_prompt_context(self) -> str:
         """Builds structured context block for the LLM agent."""
-        recent_tx = self.get_recent_transcript(seconds=240.0)
+        recent_tx = self.get_recent_transcript(seconds=900.0)
         scratchpad_md = self.get_scratchpad_markdown()
         
         with self.lock:
